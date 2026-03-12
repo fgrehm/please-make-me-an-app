@@ -65,17 +65,12 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      - name: Determine version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-
       - name: Package tarball
         run: |
           mkdir -p staging
           cp target/release/please-make-me-an-app staging/
           cp README.md LICENSE staging/
-          tar -czf "please-make-me-an-app-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz" \
-            -C staging .
+          tar -czf please-make-me-an-app-x86_64-linux.tar.gz -C staging .
 
       - name: Extract changelog for this version
         id: changelog
@@ -89,4 +84,4 @@ jobs:
         with:
           body_path: release_body.md
           files: |
-            please-make-me-an-app-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz
+            please-make-me-an-app-x86_64-linux.tar.gz

@@ -46,6 +46,14 @@ Linux only for now (Debian/Ubuntu). Sorry, macOS/Windows folks 🙈
 sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libxdo3 libayatana-appindicator3-1
 ```
 
+### Install
+
+```sh
+curl -L https://github.com/fgrehm/please-make-me-an-app/releases/latest/download/please-make-me-an-app-x86_64-linux.tar.gz | tar xz -C /usr/local/bin please-make-me-an-app
+```
+
+Or download from the [releases page](https://github.com/fgrehm/please-make-me-an-app/releases) and put the binary somewhere on your `$PATH`.
+
 ### Usage
 
 ```sh
