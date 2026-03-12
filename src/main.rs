@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 fn long_version() -> &'static str {
     const VERSION: &str = concat!(
-        env!("CARGO_PKG_VERSION"),
+        env!("PMMA_VERSION"),
         "\ncommit: ",
         env!("PMMA_GIT_HASH"),
         "\nbuilt:  ",
@@ -34,7 +34,7 @@ fn long_version() -> &'static str {
                   Each app gets profile-isolated storage (cookies, localStorage, cache), \
                   optional CSS/JS injection, ad blocking, system notifications, and a \
                   system tray icon.",
-    version,
+    version = env!("PMMA_VERSION"),
     long_version = long_version(),
     after_help = "Examples:\n  \
                   please-make-me-an-app open whatsapp.yaml\n  \

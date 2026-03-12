@@ -86,6 +86,14 @@ src/
 - Serde derive for all config structs.
 - Minimal `unsafe` code: only `libc::flock` for single instance locking.
 
+## Versioning
+
+- The displayed version comes from `git describe --tags --exact-match` at build time (via `build.rs`).
+- CI builds from a tag (e.g., `v0.1.2`) get the tag as the version.
+- Local builds without a tag on HEAD fall back to the version in `Cargo.toml`.
+- `Cargo.toml` version does not need to be bumped for releases. Just push a `v*` tag.
+- The `PMMA_VERSION` env var is set by `build.rs` and used in `main.rs` for both `-V` and `--version`.
+
 ## Standards and conventions
 
 - **Git**: Conventional Commits with scopes (e.g., `feat(config):`, `fix(webview):`)
