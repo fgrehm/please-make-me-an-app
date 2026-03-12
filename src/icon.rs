@@ -1,6 +1,6 @@
 use crate::config::{self, AppConfig};
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const ICON_EXTENSIONS: &[&str] = &["png", "ico", "svg", "jpg", "jpeg", "gif", "webp"];
 
@@ -48,6 +48,16 @@ pub fn cached_path(app_name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Decode an image file to raw RGBA pixel data.
+/// Returns (rgba_bytes, width, height) or None on failure.
+pub fn load_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
+    let img = image::open(path).ok()?;
+    let rgba = img.into_rgba8();
+    let width = rgba.width();
+    let height = rgba.height();
+    Some((rgba.into_raw(), width, height))
 }
 
 pub fn remove(app_name: &str) -> Result<()> {

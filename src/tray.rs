@@ -42,11 +42,8 @@ pub fn create(tooltip: &str, icon_path: Option<&Path>) -> Result<TrayState> {
 
 fn load_icon(path: Option<&Path>) -> Icon {
     if let Some(path) = path {
-        if let Ok(img) = image::open(path) {
-            let rgba = img.into_rgba8();
-            let width = rgba.width();
-            let height = rgba.height();
-            if let Ok(icon) = Icon::from_rgba(rgba.into_raw(), width, height) {
+        if let Some((rgba, width, height)) = crate::icon::load_rgba(path) {
+            if let Ok(icon) = Icon::from_rgba(rgba, width, height) {
                 return icon;
             }
         }
