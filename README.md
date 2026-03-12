@@ -49,10 +49,10 @@ sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libxdo3 libayatana-appindicator3
 ### Install
 
 ```sh
-curl -L https://github.com/fgrehm/please-make-me-an-app/releases/latest/download/please-make-me-an-app-x86_64-linux.tar.gz | tar xz -C /usr/local/bin please-make-me-an-app
+curl -L https://github.com/fgrehm/please-make-me-an-app/releases/latest/download/please-make-me-an-app-x86_64-linux.tar.gz | tar xz -C ~/.local/bin please-make-me-an-app
 ```
 
-Or download from the [releases page](https://github.com/fgrehm/please-make-me-an-app/releases) and put the binary somewhere on your `$PATH`.
+This assumes `~/.local/bin` is on your `$PATH` (it is by default on most distros). If not, use `/usr/local/bin` or any other directory on your `$PATH`.
 
 ### Usage
 
