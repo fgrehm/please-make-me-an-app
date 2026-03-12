@@ -168,21 +168,19 @@ pub fn run(
     #[cfg(not(target_os = "linux"))]
     let _webview = builder.build(&window)?;
 
+    // Decode icon once, share between window and tray
+    let icon_rgba = icon_path.as_deref().and_then(icon::load_rgba);
+
     // Window icon for alt-tab / taskbar
-    if let Some(ref icon_p) = icon_path {
-        if let Some((rgba, width, height)) = icon::load_rgba(icon_p) {
-            if let Ok(win_icon) = tao::window::Icon::from_rgba(rgba, width, height) {
-                window.set_window_icon(Some(win_icon));
-            }
+    if let Some((ref rgba, width, height)) = icon_rgba {
+        if let Ok(win_icon) = tao::window::Icon::from_rgba(rgba.clone(), width, height) {
+            window.set_window_icon(Some(win_icon));
         }
     }
 
     // System tray
     let tray_state = if config.tray.enabled {
-        Some(tray::create(
-            &display_title,
-            icon_path.as_deref(),
-        )?)
+        Some(tray::create(&display_title, icon_rgba)?)
     } else {
         None
     };
