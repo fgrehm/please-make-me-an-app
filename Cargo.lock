@@ -2177,6 +2177,7 @@ dependencies = [
  "anyhow",
  "clap",
  "directories",
+ "gtk",
  "image",
  "libc",
  "notify-rust",

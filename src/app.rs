@@ -210,7 +210,7 @@ pub fn run(
                     *control_flow = ControlFlow::Exit;
                 } else if menu_event.id == ts.toggle_id {
                     window_visible = !window_visible;
-                    window.set_visible(window_visible);
+                    toggle_window(&window, window_visible);
                 }
             }
 
@@ -220,7 +220,7 @@ pub fn run(
             }) = tray_icon::TrayIconEvent::receiver().try_recv()
             {
                 window_visible = !window_visible;
-                window.set_visible(window_visible);
+                toggle_window(&window, window_visible);
             }
         }
 
@@ -255,6 +255,23 @@ fn save_window_position(window: &tao::window::Window, enabled: bool, data_dir: &
                 height: size.height,
             },
         );
+    }
+}
+
+/// Show or hide the window. On Linux, use gtk_window_present() after showing
+/// to properly re-activate the window in the compositor. Without this, KDE
+/// Plasma leaves the titlebar buttons (minimize, maximize, close) disabled.
+fn toggle_window(window: &tao::window::Window, visible: bool) {
+    if visible {
+        window.set_visible(true);
+        #[cfg(target_os = "linux")]
+        {
+            use gtk::prelude::GtkWindowExt as _;
+            use tao::platform::unix::WindowExtUnix;
+            window.gtk_window().present();
+        }
+    } else {
+        window.set_visible(false);
     }
 }
 
