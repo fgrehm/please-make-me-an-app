@@ -1,0 +1,30 @@
+name: gmail
+url: https://mail.google.com
+window:
+  title: Gmail
+  width: 1200
+  height: 800
+profiles:
+  - name: personal
+  - name: work
+inject:
+  css: |
+    # Example: hide the left sidebar
+    # .aeN { display: none; }
+  js: |
+    // Example: log when the app loads
+    // console.log("Gmail app loaded via please-make-me-an-app");
+  # css_file: styles/gmail.css   # path relative to this config file
+  # js_file: scripts/gmail.js    # or an absolute path
+# user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+# clipboard: true                   # enabled by default
+# adblock: true                     # block ads and trackers (default: true)
+# adblock_extra: blocklist.txt      # additional domains file (relative to config)
+# notifications: true               # forward web notifications to system (default: true)
+# tray:
+#   enabled: true                   # show system tray icon
+#   minimize_to_tray: true          # close button hides window instead of quitting
+allowed_domains:
+  - google.com
+  - gstatic.com
+  - googleapis.com

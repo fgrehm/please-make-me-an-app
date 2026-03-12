@@ -1,0 +1,17 @@
+# Claude.ai is protected by Cloudflare Turnstile, which rejects WebKitGTK.
+# Use a browser backend (brave, chrome, or chromium) to bypass this.
+name: claude
+url: https://claude.ai
+backend: brave
+window:
+  title: Claude
+  width: 1200
+  height: 800
+profiles:
+  - name: personal
+  - name: work
+# Browser mode notes:
+# - tray, inject, user_agent, allowed_domains do not apply
+# - Brave's built-in ad blocker handles ads natively
+# - Web notifications work via the browser's own permission model
+# - Profile isolation via --user-data-dir (full cookie/storage separation)

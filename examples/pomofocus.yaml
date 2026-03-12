@@ -1,0 +1,11 @@
+name: pomofocus
+url: https://pomofocus.io/
+window:
+  title: Pomofocus
+  width: 620
+  height: 750
+  remember_position: true
+notifications: true
+tray:
+  enabled: true
+  minimize_to_tray: true
