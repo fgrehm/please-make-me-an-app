@@ -70,7 +70,7 @@ jobs:
           mkdir -p staging
           cp target/release/please-make-me-an-app staging/
           cp README.md LICENSE staging/
-          tar -czf please-make-me-an-app-x86_64-linux.tar.gz -C staging .
+          tar -czf please-make-me-an-app-x86_64-linux.tar.gz -C staging please-make-me-an-app README.md LICENSE
 
       - name: Extract changelog for this version
         id: changelog
