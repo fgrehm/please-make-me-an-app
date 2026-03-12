@@ -119,14 +119,10 @@ pub fn run(
 
     let app_domain = extract_domain(&config.url).unwrap_or("").to_string();
     let allowed = config.allowed_domains.clone();
-
-    // Each move closure needs its own copy (two closures, two clones)
-    let nav_domain = app_domain.clone();
-    let nav_allowed = allowed.clone();
     let nav_debug = debug;
     let nav_open_external = config.open_external_links;
     builder = builder.with_navigation_handler(move |url| {
-        if should_open_externally(&url, &nav_domain, &nav_allowed) {
+        if should_open_externally(&url, &app_domain, &allowed) {
             if nav_debug {
                 eprintln!("[debug] nav blocked (external): {}", url);
             }
@@ -144,19 +140,19 @@ pub fn run(
 
     let popup_debug = debug;
     builder = builder.with_new_window_req_handler(move |url, _features| {
-        if should_open_externally(&url, &app_domain, &allowed) {
+        // Never allow popups: NewWindowResponse::Allow creates unmanaged GTK windows
+        // with no icon, no navigation handler, and no tray integration.
+        // Instead, open in the system browser (which has password managers, WebAuthn, etc.).
+        if url.starts_with("http://") || url.starts_with("https://") {
+            let target = unwrap_google_redirect(&url).unwrap_or(url);
             if popup_debug {
-                eprintln!("[debug] popup denied: {}", url);
+                eprintln!("[debug] popup -> browser: {}", target);
             }
-            // Deny silently: popups to external domains are almost always ads/trackers.
-            // Legitimate external links are handled by the navigation handler instead.
-            NewWindowResponse::Deny
-        } else {
-            if popup_debug {
-                eprintln!("[debug] popup allowed: {}", url);
-            }
-            NewWindowResponse::Allow
+            open_in_browser(&target);
+        } else if popup_debug {
+            eprintln!("[debug] popup denied (non-http): {}", url);
         }
+        NewWindowResponse::Deny
     });
 
     #[cfg(target_os = "linux")]
@@ -171,6 +167,15 @@ pub fn run(
 
     #[cfg(not(target_os = "linux"))]
     let _webview = builder.build(&window)?;
+
+    // Window icon for alt-tab / taskbar
+    if let Some(ref icon_p) = icon_path {
+        if let Some((rgba, width, height)) = icon::load_rgba(icon_p) {
+            if let Ok(win_icon) = tao::window::Icon::from_rgba(rgba, width, height) {
+                window.set_window_icon(Some(win_icon));
+            }
+        }
+    }
 
     // System tray
     let tray_state = if config.tray.enabled {
@@ -329,6 +334,50 @@ fn extract_domain(url: &str) -> Option<&str> {
     let after_scheme = url.find("://").map(|i| &url[i + 3..])?;
     let host = after_scheme.split('/').next()?;
     Some(host.split(':').next().unwrap_or(host))
+}
+
+/// If the URL is a Google redirect (google.com/url?q=<encoded-url>), extract the destination.
+fn unwrap_google_redirect(url: &str) -> Option<String> {
+    let domain = extract_domain(url)?;
+    if !domain_matches(domain, "google.com") {
+        return None;
+    }
+    let after_scheme = url.find("://").map(|i| &url[i + 3..])?;
+    let slash = after_scheme.find('/')?;
+    let path_and_query = &after_scheme[slash..];
+    if !path_and_query.starts_with("/url?") {
+        return None;
+    }
+    let query = path_and_query.split('?').nth(1)?;
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("q=") {
+            let decoded = percent_decode(value);
+            if decoded.starts_with("http://") || decoded.starts_with("https://") {
+                return Some(decoded);
+            }
+        }
+    }
+    None
+}
+
+fn percent_decode(s: &str) -> String {
+    let mut result = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
+                result.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&result).into_owned()
 }
 
 fn open_in_browser(url: &str) {
@@ -598,5 +647,70 @@ mod tests {
     fn navigator_override_chrome_false_still_none_when_no_others() {
         let nav = crate::config::NavigatorConfig { vendor: None, platform: None, chrome: false };
         assert!(build_navigator_override_script(&nav).is_none());
+    }
+
+    // -- unwrap_google_redirect --
+
+    #[test]
+    fn unwrap_google_redirect_basic() {
+        let url = "https://www.google.com/url?q=https%3A%2F%2Fexample.com%2Fpage&sa=D&ust=123";
+        assert_eq!(
+            unwrap_google_redirect(url),
+            Some("https://example.com/page".to_string())
+        );
+    }
+
+    #[test]
+    fn unwrap_google_redirect_no_q_param() {
+        let url = "https://www.google.com/url?sa=D&ust=123";
+        assert_eq!(unwrap_google_redirect(url), None);
+    }
+
+    #[test]
+    fn unwrap_google_redirect_not_google() {
+        let url = "https://example.com/url?q=https%3A%2F%2Fother.com";
+        assert_eq!(unwrap_google_redirect(url), None);
+    }
+
+    #[test]
+    fn unwrap_google_redirect_not_url_path() {
+        let url = "https://www.google.com/search?q=test";
+        assert_eq!(unwrap_google_redirect(url), None);
+    }
+
+    #[test]
+    fn unwrap_google_redirect_rejects_non_http() {
+        let url = "https://www.google.com/url?q=javascript%3Aalert(1)";
+        assert_eq!(unwrap_google_redirect(url), None);
+    }
+
+    // -- percent_decode --
+
+    #[test]
+    fn percent_decode_basic() {
+        assert_eq!(percent_decode("hello%20world"), "hello world");
+    }
+
+    #[test]
+    fn percent_decode_url() {
+        assert_eq!(
+            percent_decode("https%3A%2F%2Fexample.com%2Fpage%3Fk%3Dv"),
+            "https://example.com/page?k=v"
+        );
+    }
+
+    #[test]
+    fn percent_decode_no_encoding() {
+        assert_eq!(percent_decode("plain-text"), "plain-text");
+    }
+
+    #[test]
+    fn percent_decode_invalid_hex() {
+        assert_eq!(percent_decode("100%ZZdone"), "100%ZZdone");
+    }
+
+    #[test]
+    fn percent_decode_truncated() {
+        assert_eq!(percent_decode("trail%2"), "trail%2");
     }
 }
