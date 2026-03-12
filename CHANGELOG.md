@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1
+
+- Add install instructions to README
+- Add CI workflow (check, test, clippy) on push and PRs
+- Add release workflow with test gate
+- Cache apt packages in CI for faster builds
+
 ## v0.1.0
 
 Initial release.
