@@ -116,6 +116,11 @@ fn show(
         Ok(handle) => {
             if let Some(flag) = raise_flag {
                 let flag = flag.clone();
+                // Spawn a thread per notification to wait for a click action.
+                // wait_for_action() blocks; it cannot be made async without
+                // a different notify-rust API. The 10s timeout bounds thread
+                // lifetime. process::exit(0) in the tray quit path ensures
+                // these threads don't delay exit.
                 std::thread::spawn(move || {
                     handle.wait_for_action(|action| {
                         if action == "default" {

@@ -197,10 +197,15 @@ pub fn run(
     });
 
     builder = builder.with_download_started_handler(move |_url, dest| {
-        if let Some(chosen) = pick_download_path(dest) {
-            *dest = chosen;
+        match pick_download_path(dest) {
+            Some(chosen) => {
+                *dest = chosen;
+                true
+            }
+            // User cancelled the dialog: deny the download rather than
+            // silently saving to the default location.
+            None => false,
         }
-        true
     });
 
     #[cfg(target_os = "linux")]
@@ -554,8 +559,9 @@ const BEFOREUNLOAD_CHECK: &str = r#"(function() {
 })();"#;
 
 /// Show a GTK file chooser so the user can pick where to save a download.
-/// Returns the chosen path, or None if the user cancelled (download is still
-/// allowed but wry saves to the original suggested destination).
+/// Returns the chosen path, or None if the user cancelled.
+/// The caller should return false from the download handler on None to cancel
+/// the download rather than saving to the default location.
 fn pick_download_path(suggested: &std::path::Path) -> Option<std::path::PathBuf> {
     #[cfg(target_os = "linux")]
     {

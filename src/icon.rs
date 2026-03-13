@@ -10,8 +10,9 @@ pub fn fetch(config: &AppConfig) -> Result<Option<PathBuf>> {
     let icons_dir = dirs.data_dir().join("icons");
     std::fs::create_dir_all(&icons_dir)?;
 
-    // Remove old icons (may have different extension from a previous install)
-    remove_from_dir(&icons_dir, &config.name);
+    // Remove old icons (may have different extension from a previous install).
+    // Ignore errors: failing to clean up stale icons is non-fatal for fetch.
+    let _ = remove_from_dir(&icons_dir, &config.name);
 
     // Try to find the favicon URL from the page HTML, fall back to /favicon.ico
     let favicon = find_favicon_from_html(&config.url)
@@ -87,17 +88,20 @@ pub fn load_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
 pub fn remove(app_name: &str) -> Result<()> {
     let dirs = config::project_dirs()?;
     let icons_dir = dirs.data_dir().join("icons");
-    remove_from_dir(&icons_dir, app_name);
-    Ok(())
+    remove_from_dir(&icons_dir, app_name)
 }
 
-fn remove_from_dir(icons_dir: &Path, app_name: &str) {
+/// Remove all cached icon files for an app. Used by `uninstall` (errors
+/// propagated) and `fetch` before re-fetching (errors ignored, non-fatal).
+fn remove_from_dir(icons_dir: &Path, app_name: &str) -> Result<()> {
     for ext in ICON_EXTENSIONS {
         let path = icons_dir.join(format!("{}.{}", app_name, ext));
         if path.exists() {
-            let _ = std::fs::remove_file(&path);
+            std::fs::remove_file(&path)
+                .with_context(|| format!("Failed to remove icon: {}", path.display()))?;
         }
     }
+    Ok(())
 }
 
 /// Fetch the page HTML and find the best (largest) icon.
