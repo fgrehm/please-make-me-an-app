@@ -48,13 +48,13 @@ Tray menu events (Quit, Show/Hide) use a separate channel (`tray_icon::menu::Men
 
 **How it's handled:** When the tray is enabled, the event loop uses `ControlFlow::WaitUntil` with a 250ms timeout instead of `ControlFlow::Wait`. This wakes the loop ~4 times per second to check the tray channel. When no tray is configured, the loop uses `Wait` with zero overhead.
 
-## External Link Popups and Ads
+## Popup Windows
 
-Sites with ads (e.g., Pomofocus) may trigger `window.open()` or `target="_blank"` links to ad/tracker domains. If these were opened via `xdg-open`, they would flood the user's system browser with ad tabs.
+All `window.open()` and `target="_blank"` requests are denied and opened in the system browser instead. This is intentional: wry/WebKitGTK's `NewWindowResponse::Allow` creates unmanaged GTK popup windows with no icon, navigation handler, tray integration, or CSS/JS injection, producing a broken UX for login flows, link clicks, and ads alike.
 
-**How it's handled:** The `with_new_window_req_handler` silently denies new window requests to domains outside the app domain and `allowed_domains`. Only the navigation handler (top-level navigations from user clicks) opens external URLs in the system browser. Combined with the JS-based ad blocker (`adblock: true` by default), this prevents most ad spam.
+Google redirect URLs (`google.com/url?q=<encoded-url>`) are automatically unwrapped to extract the real destination before opening in the browser.
 
-For apps that auto-navigate to cross-domain URLs programmatically (e.g., banking sites with fraud-detection redirects), set `open_external_links: false` to silently drop those navigations instead of sending them to the system browser.
+Combined with the JS-based ad blocker (`adblock: true` by default), this prevents most ad popup spam. For apps that auto-navigate to cross-domain URLs programmatically (e.g., banking sites with fraud-detection redirects), set `open_external_links: false` to silently drop external navigations.
 
 ## Maximize/Minimize Buttons Disabled on KDE Plasma
 
