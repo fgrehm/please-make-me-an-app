@@ -231,7 +231,7 @@ pub fn run(
         {
             if minimize_to_tray {
                 window_visible = false;
-                window.set_visible(false);
+                toggle_window(&window, false);
             } else {
                 save_window_position(&window, remember_position, &data_dir);
                 *control_flow = ControlFlow::Exit;
@@ -258,20 +258,39 @@ fn save_window_position(window: &tao::window::Window, enabled: bool, data_dir: &
     }
 }
 
-/// Show or hide the window. On Linux, use gtk_window_present() after showing
-/// to properly re-activate the window in the compositor. Without this, KDE
-/// Plasma leaves the titlebar buttons (minimize, maximize, close) disabled.
+/// Show or hide the window for tray minimize/restore.
+///
+/// On Wayland, hiding a window unmaps the xdg_toplevel surface and the
+/// compositor resets all window capabilities (minimize, maximize, close).
+/// When remapped via show_all(), KDE Plasma does not restore these
+/// capabilities, leaving titlebar buttons disabled. Forcing a resize after
+/// showing triggers a new configure event from the compositor that restores
+/// the capabilities. A short timer resizes back to the original size.
 fn toggle_window(window: &tao::window::Window, visible: bool) {
-    if visible {
-        window.set_visible(true);
-        #[cfg(target_os = "linux")]
-        {
-            use gtk::prelude::GtkWindowExt as _;
-            use tao::platform::unix::WindowExtUnix;
-            window.gtk_window().present();
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::{GtkWindowExt as _, WidgetExt as _};
+        use tao::platform::unix::WindowExtUnix;
+        let gtk_win = window.gtk_window();
+        if visible {
+            gtk_win.show_all();
+            let (w, h) = gtk_win.size();
+            gtk_win.resize(w, h + 1);
+            gtk_win.present();
+            let win_ref = gtk_win.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(50),
+                move || {
+                    win_ref.resize(w, h);
+                },
+            );
+        } else {
+            gtk_win.hide();
         }
-    } else {
-        window.set_visible(false);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        window.set_visible(visible);
     }
 }
 

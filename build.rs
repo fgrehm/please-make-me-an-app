@@ -25,9 +25,9 @@ fn main() {
         git_hash
     };
 
-    // Build date (UTC, YYYY-MM-DD)
+    // Build timestamp (UTC, YYYY-MM-DD HH:MM:SS)
     let build_date = Command::new("date")
-        .args(["-u", "+%Y-%m-%d"])
+        .args(["-u", "+%Y-%m-%d %H:%M:%S UTC"])
         .output()
         .ok()
         .filter(|o| o.status.success())
