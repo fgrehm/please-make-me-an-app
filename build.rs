@@ -34,8 +34,10 @@ fn main() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Version from git tag (e.g., "v0.1.2" -> "0.1.2"), falls back to Cargo.toml version.
-    // CI builds from a tag get the tag version; local builds get Cargo.toml version.
+    // Version resolution, in priority order:
+    // 1. Exact tag on HEAD (CI release builds) -> "0.1.3"
+    // 2. git describe from nearest tag (local/dev builds) -> "0.1.3-5-gabcdef"
+    // 3. Cargo.toml version + "-dev" (no tags at all) -> "0.1.0-dev"
     let version = Command::new("git")
         .args(["describe", "--tags", "--exact-match"])
         .output()
@@ -45,7 +47,19 @@ fn main() {
             let tag = String::from_utf8_lossy(&o.stdout).trim().to_string();
             tag.strip_prefix('v').unwrap_or(&tag).to_string()
         })
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        .or_else(|| {
+            Command::new("git")
+                .args(["describe", "--tags", "--long"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| {
+                    // "v0.1.3-5-gabcdef" -> "0.1.3-5-gabcdef"
+                    let desc = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    desc.strip_prefix('v').unwrap_or(&desc).to_string()
+                })
+        })
+        .unwrap_or_else(|| format!("{}-dev", env!("CARGO_PKG_VERSION")));
 
     println!("cargo:rustc-env=PMMA_VERSION={}", version);
     println!("cargo:rustc-env=PMMA_GIT_HASH={}", git_info);
