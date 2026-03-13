@@ -10,12 +10,12 @@ pub fn fetch(config: &AppConfig) -> Result<Option<PathBuf>> {
     let icons_dir = dirs.data_dir().join("icons");
     std::fs::create_dir_all(&icons_dir)?;
 
+    // Remove old icons (may have different extension from a previous install)
+    remove_from_dir(&icons_dir, &config.name);
+
     // Try to find the favicon URL from the page HTML, fall back to /favicon.ico
     let favicon = find_favicon_from_html(&config.url)
         .unwrap_or_else(|| fallback_favicon_url(&config.url));
-
-    let ext = icon_extension(&favicon);
-    let icon_path = icons_dir.join(format!("{}.{}", config.name, ext));
 
     match ureq::get(&favicon).call() {
         Ok(response) => {
@@ -23,7 +23,7 @@ pub fn fetch(config: &AppConfig) -> Result<Option<PathBuf>> {
                 .into_body()
                 .read_to_vec()
                 .context("Failed to read favicon response")?;
-            std::fs::write(&icon_path, &body)?;
+            let icon_path = save_as_png(&icons_dir, &config.name, &body, &favicon)?;
             println!("Fetched icon for {} from {}", config.name, favicon);
             Ok(Some(icon_path))
         }
@@ -35,6 +35,30 @@ pub fn fetch(config: &AppConfig) -> Result<Option<PathBuf>> {
             Ok(None)
         }
     }
+}
+
+/// Save icon bytes as PNG for desktop environment compatibility.
+/// ICO, WebP, and other formats are not reliably supported by all
+/// desktop environments for .desktop file icons.
+fn save_as_png(dir: &Path, name: &str, bytes: &[u8], source_url: &str) -> Result<PathBuf> {
+    let icon_path = dir.join(format!("{}.png", name));
+
+    // Try to decode and re-encode as PNG
+    match image::load_from_memory(bytes) {
+        Ok(img) => {
+            img.save(&icon_path)
+                .with_context(|| format!("Failed to save icon as PNG: {}", icon_path.display()))?;
+        }
+        Err(_) => {
+            // Can't decode (e.g. SVG) - save with original extension
+            let ext = icon_extension(source_url);
+            let fallback_path = dir.join(format!("{}.{}", name, ext));
+            std::fs::write(&fallback_path, bytes)?;
+            return Ok(fallback_path);
+        }
+    }
+
+    Ok(icon_path)
 }
 
 /// Find the cached icon path for an app, if one exists.
@@ -62,16 +86,18 @@ pub fn load_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
 
 pub fn remove(app_name: &str) -> Result<()> {
     let dirs = config::project_dirs()?;
-
     let icons_dir = dirs.data_dir().join("icons");
+    remove_from_dir(&icons_dir, app_name);
+    Ok(())
+}
+
+fn remove_from_dir(icons_dir: &Path, app_name: &str) {
     for ext in ICON_EXTENSIONS {
         let path = icons_dir.join(format!("{}.{}", app_name, ext));
         if path.exists() {
-            std::fs::remove_file(&path)?;
-            println!("Removed icon: {}", path.display());
+            let _ = std::fs::remove_file(&path);
         }
     }
-    Ok(())
 }
 
 /// Fetch the page HTML and look for a <link rel="icon"> tag.

@@ -107,13 +107,21 @@ Apps that use extensions only for optional features (e.g., a "share to X" button
 
 When `backend` is set to `brave`, `chrome`, or `chromium`, the app launches in the system browser's app mode (`--app`) instead of the embedded WebKitGTK webview. This is a fallback for sites that don't work with WebKitGTK (Cloudflare Turnstile, WebAuthn, etc.). Browser mode has its own trade-offs.
 
+### Alt-tab / taskbar icon on Wayland
+
+Chromium ignores the `--class` flag for `--app` mode windows on Wayland. Instead, it generates its own `app_id` from the URL (e.g., `brave-claude.ai__-Default`). This is an upstream Chromium bug ([#40657304](https://issues.chromium.org/issues/40657304)).
+
+please-make-me-an-app predicts the `app_id` that Chromium will generate and sets `StartupWMClass` accordingly in the `.desktop` file. However, KDE Plasma may not match windows by `StartupWMClass` reliably on Wayland, causing the app to show a generic icon in alt-tab and the taskbar instead of the configured favicon.
+
+**Status:** Upstream Chromium issue. No reliable workaround from outside the browser process.
+
 ### What works in browser mode
 
 - **Profile isolation** via `--user-data-dir` (full cookie, localStorage, and cache isolation per profile)
 - **.desktop file generation** with icons and per-profile entries
 - **Window size** from config (passed as `--window-size`)
 - **Single instance** (Chromium enforces one instance per user-data-dir natively)
-- **StartupWMClass** set in .desktop files for window/launcher matching
+- **StartupWMClass** set in .desktop files for window/launcher matching (may not work on Wayland, see above)
 
 ### What does not apply in browser mode
 

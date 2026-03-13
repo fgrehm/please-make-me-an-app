@@ -89,6 +89,41 @@ pub fn run(config: &AppConfig, profile_name: &str, data_dir: &Path, url: &str) -
     Ok(())
 }
 
+/// Replicate Chromium's `GenerateApplicationNameFromURL()`.
+///
+/// Given `"https://claude.ai/"`, produces `"claude.ai__"`.
+/// The algorithm is: `(host + "_" + path).replace('/', '_')`.
+fn chromium_app_name_from_url(url: &str) -> String {
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+
+    let (host, path) = match without_scheme.find('/') {
+        Some(i) => (&without_scheme[..i], &without_scheme[i..]),
+        None => (without_scheme, "/"),
+    };
+
+    format!("{}_{}", host, path).replace('/', "_")
+}
+
+/// The Wayland `app_id` that Chromium sets in `--app` mode.
+///
+/// Chromium ignores `--class` for app windows on Wayland and generates
+/// its own `app_id` from the URL: `<browser>-<url_app_name>-Default`.
+/// This must match `StartupWMClass` in the `.desktop` file for icon
+/// matching to work.
+pub fn chromium_wm_class(backend: &Backend, url: &str) -> String {
+    let prefix = match backend {
+        Backend::Brave => "brave",
+        Backend::Chrome => "google-chrome",
+        Backend::Chromium => "chromium-browser",
+        Backend::Webview => unreachable!("chromium_wm_class called with webview backend"),
+    };
+    let app_name = chromium_app_name_from_url(url);
+    format!("{}-{}-Default", prefix, app_name)
+}
+
 /// Print warnings for config options that are ignored in browser mode.
 pub fn warn_ignored_options(config: &AppConfig) {
     let backend = config.backend.display_name();
@@ -189,4 +224,46 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[test]
+    fn chromium_app_name_simple_host() {
+        assert_eq!(chromium_app_name_from_url("https://claude.ai/"), "claude.ai__");
+    }
+
+    #[test]
+    fn chromium_app_name_no_trailing_slash() {
+        // URL without trailing slash gets implied /
+        assert_eq!(chromium_app_name_from_url("https://claude.ai"), "claude.ai__");
+    }
+
+    #[test]
+    fn chromium_app_name_with_path() {
+        assert_eq!(
+            chromium_app_name_from_url("https://mail.google.com/mail/u/0/"),
+            "mail.google.com__mail_u_0_"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_brave() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Brave, "https://claude.ai/"),
+            "brave-claude.ai__-Default"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_chrome() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Chrome, "https://mail.google.com/mail/"),
+            "google-chrome-mail.google.com__mail_-Default"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_chromium() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Chromium, "https://example.com"),
+            "chromium-browser-example.com__-Default"
+        );
+    }
 }

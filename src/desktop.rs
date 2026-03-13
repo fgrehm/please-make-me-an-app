@@ -1,4 +1,5 @@
 use crate::config::AppConfig;
+use crate::browser;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -77,9 +78,15 @@ fn write_desktop_entry(
         None => String::new(),
     };
     let log_file = format!("/tmp/pmma-{}.log", log_suffix);
-    let wm_class = match profile {
-        Some(p) => format!("pmma-{}--{}", app_name, p),
-        None => format!("pmma-{}", app_name),
+    let wm_class = if config.backend.is_browser() {
+        // Chromium ignores --class in --app mode on Wayland and generates
+        // its own app_id from the URL. We must match it.
+        browser::chromium_wm_class(&config.backend, &config.url)
+    } else {
+        match profile {
+            Some(p) => format!("pmma-{}--{}", app_name, p),
+            None => format!("pmma-{}", app_name),
+        }
     };
     let wm_class_line = format!("StartupWMClass={}\n", wm_class);
 
