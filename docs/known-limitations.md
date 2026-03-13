@@ -42,11 +42,17 @@ Ad blocking is implemented via JavaScript API interception (patching `fetch`, `X
 
 For full content blocking, WebKitGTK's native `WebKitUserContentFilter` API would be needed, but wry does not expose it. See [docs/ad-blocking.md](ad-blocking.md) for the research.
 
-## System Tray Event Loop
+## Event Loop Polling
 
-Tray menu events (Quit, Show/Hide) use a separate channel (`tray_icon::menu::MenuEvent::receiver()`) that is not part of tao's event system. With `ControlFlow::Wait`, the event loop blocks until a tao window event arrives, so tray menu clicks are never processed.
+Several features signal the event loop via `AtomicBool` flags or separate channels that are not connected to tao's event system:
 
-**How it's handled:** When the tray is enabled, the event loop uses `ControlFlow::WaitUntil` with a 250ms timeout instead of `ControlFlow::Wait`. This wakes the loop ~4 times per second to check the tray channel. When no tray is configured, the loop uses `Wait` with zero overhead.
+- Tray menu events (Quit, Show/Hide) go through `tray_icon::menu::MenuEvent::receiver()`
+- Keyboard shortcuts (Ctrl+W, Ctrl+Q) are set from wry's IPC callback thread
+- The raise socket listener signals from a background thread
+
+With `ControlFlow::Wait`, the event loop blocks until a tao window event arrives, so none of these would be processed in a timely manner.
+
+**How it's handled:** The event loop uses `ControlFlow::WaitUntil` with a 250ms timeout unconditionally. This wakes the loop ~4 times per second regardless of whether a tray is configured. The proper fix (waking via `EventLoopProxy` from each signal source) is deferred as future work.
 
 ## Popup Windows
 
@@ -112,6 +118,8 @@ When `backend` is set to `brave`, `chrome`, or `chromium`, the app launches in t
 Chromium ignores the `--class` flag for `--app` mode windows on Wayland. Instead, it generates its own `app_id` from the URL (e.g., `brave-claude.ai__-Default`). This is an upstream Chromium bug ([#40657304](https://issues.chromium.org/issues/40657304)).
 
 please-make-me-an-app predicts the `app_id` that Chromium will generate and sets `StartupWMClass` accordingly in the `.desktop` file. However, KDE Plasma may not match windows by `StartupWMClass` reliably on Wayland, causing the app to show a generic icon in alt-tab and the taskbar instead of the configured favicon.
+
+Because the `app_id` is derived from the URL (not the profile name), all profiles of the same app share the same `StartupWMClass`. This means per-profile `.desktop` entries cannot be distinguished by WM_CLASS on X11 when multiple profiles are open concurrently.
 
 **Status:** Upstream Chromium issue. No reliable workaround from outside the browser process.
 

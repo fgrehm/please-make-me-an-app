@@ -121,7 +121,7 @@ fn find_favicon_from_html(page_url: &str) -> Option<String> {
 
 /// Parse the web app manifest for the largest icon.
 fn find_icon_from_manifest(html: &str, page_url: &str) -> Option<String> {
-    let html_lower = html.to_lowercase();
+    let html_lower = html.to_ascii_lowercase();
     let mut pos = 0;
 
     while let Some(offset) = html_lower[pos..].find("<link") {
@@ -178,7 +178,7 @@ fn fetch_largest_manifest_icon(manifest_url: &str) -> Option<String> {
 ///
 /// Prefers apple-touch-icon and larger sizes over plain favicons.
 fn parse_best_icon_link(html: &str, page_url: &str) -> Option<String> {
-    let html_lower = html.to_lowercase();
+    let html_lower = html.to_ascii_lowercase();
     let mut best: Option<(u32, String)> = None;
     let mut pos = 0;
 
@@ -230,7 +230,7 @@ fn parse_icon_size(sizes: &str) -> Option<u32> {
 
 /// Extract a named attribute value from an HTML tag.
 fn extract_attr<'a>(tag: &'a str, attr_name: &str) -> Option<&'a str> {
-    let lower = tag.to_lowercase();
+    let lower = tag.to_ascii_lowercase();
     let needle = format!("{}=", attr_name);
     let attr_pos = lower.find(&needle)?;
     let after = &tag[attr_pos + needle.len()..];
