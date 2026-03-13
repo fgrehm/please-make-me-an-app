@@ -114,21 +114,39 @@ pub fn run(
         builder = builder.with_initialization_script(notification::dialog_intercept_script());
     }
 
-    // Flag set by notification click handler (background thread) to request
-    // the event loop to raise the window.
-    let raise_requested = Arc::new(AtomicBool::new(false));
+    // Keyboard shortcuts (Ctrl+W to close window, Ctrl+Q to quit)
+    builder = builder.with_initialization_script(keyboard_shortcut_script());
 
-    let needs_ipc = config.notifications || debug;
-    if needs_ipc {
+    // Flags shared between the IPC handler and the event loop.
+    // The IPC handler sets them; the event loop reads and resets them.
+    let raise_requested = Arc::new(AtomicBool::new(false));
+    let close_requested = Arc::new(AtomicBool::new(false));
+    let quit_requested = Arc::new(AtomicBool::new(false));
+    let close_confirmed = Arc::new(AtomicBool::new(false));
+    let close_blocked = Arc::new(AtomicBool::new(false));
+
+    {
         // Cloned into the IPC closure which must be 'static (outlives this function)
         let app_name = config.name.clone();
         let ipc_icon_path = icon_path.clone();
         let ipc_notifications = config.notifications;
         let ipc_raise = raise_requested.clone();
+        let ipc_close = close_requested.clone();
+        let ipc_quit = quit_requested.clone();
+        let ipc_confirmed = close_confirmed.clone();
+        let ipc_blocked = close_blocked.clone();
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
             if let Some(msg) = body.strip_prefix("pmma-debug:") {
                 eprintln!("{}", msg);
+            } else if body == "pmma-kbd:close-window" {
+                ipc_close.store(true, Ordering::Release);
+            } else if body == "pmma-kbd:quit-app" {
+                ipc_quit.store(true, Ordering::Release);
+            } else if body == "pmma-close:confirmed" {
+                ipc_confirmed.store(true, Ordering::Release);
+            } else if body == "pmma-close:blocked" {
+                ipc_blocked.store(true, Ordering::Release);
             } else if ipc_notifications {
                 notification::handle_ipc(
                     body,
@@ -179,7 +197,7 @@ pub fn run(
     });
 
     #[cfg(target_os = "linux")]
-    let _webview = {
+    let webview = {
         use tao::platform::unix::WindowExtUnix;
         use wry::WebViewBuilderExtUnix;
         let vbox = window
@@ -189,7 +207,7 @@ pub fn run(
     };
 
     #[cfg(not(target_os = "linux"))]
-    let _webview = builder.build(&window)?;
+    let webview = builder.build(&window)?;
 
     // Decode icon once, share between window and tray
     let icon_rgba = icon_path.as_deref().and_then(icon::load_rgba);
@@ -208,28 +226,69 @@ pub fn run(
         None
     };
 
+    // Listen for raise signals from second instances (via Unix socket)
+    if let Ok(listener) = profile::create_raise_listener(data_dir) {
+        let listener_raise = raise_requested.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(_) => listener_raise.store(true, Ordering::Release),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     let minimize_to_tray = config.tray.enabled && config.tray.minimize_to_tray;
     let remember_position = config.window.remember_position;
     let data_dir = data_dir.to_path_buf();
-    let has_tray = tray_state.is_some();
-    let has_notifications = config.notifications;
-    // Poll when tray or notifications are active (both use separate channels)
-    let needs_polling = has_tray || has_notifications;
     let mut window_visible = true;
+    let mut close_pending = false;
     event_loop.run(move |event, _, control_flow| {
-        if needs_polling {
-            *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
-        } else {
-            *control_flow = ControlFlow::Wait;
+        // Always poll: keyboard shortcuts, raise socket, and beforeunload all
+        // use atomic flags set from IPC callbacks or background threads.
+        *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
+
+        // beforeunload check confirmed: safe to close
+        if close_confirmed.swap(false, Ordering::Relaxed) {
+            save_window_position(&window, remember_position, &data_dir);
+            *control_flow = ControlFlow::Exit;
+            return;
         }
 
-        // Keep webview alive
-        let _ = &_webview;
+        // beforeunload blocked the close: ask the user
+        if close_blocked.swap(false, Ordering::Relaxed) {
+            close_pending = false;
+            if show_close_confirmation(&window) {
+                save_window_position(&window, remember_position, &data_dir);
+                *control_flow = ControlFlow::Exit;
+            }
+            return;
+        }
 
-        // Raise window if a notification was clicked
-        if raise_requested.swap(false, Ordering::Relaxed) && !window_visible {
+        // Raise window if requested (notification click, tray click, or another instance)
+        if raise_requested.swap(false, Ordering::Relaxed) {
             window_visible = true;
             toggle_window(&window, true);
+        }
+
+        // Ctrl+Q: quit regardless of tray
+        if quit_requested.swap(false, Ordering::Relaxed) && !close_pending {
+            close_pending = true;
+            let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
+            return;
+        }
+
+        // Ctrl+W: same as X button (hide to tray if enabled, otherwise close)
+        if close_requested.swap(false, Ordering::Relaxed) && !close_pending {
+            if minimize_to_tray {
+                window_visible = false;
+                toggle_window(&window, false);
+            } else {
+                close_pending = true;
+                let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
+            }
+            return;
         }
 
         // Handle tray events
@@ -262,9 +321,9 @@ pub fn run(
             if minimize_to_tray {
                 window_visible = false;
                 toggle_window(&window, false);
-            } else {
-                save_window_position(&window, remember_position, &data_dir);
-                *control_flow = ControlFlow::Exit;
+            } else if !close_pending {
+                close_pending = true;
+                let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
             }
         }
     });
@@ -303,17 +362,22 @@ fn toggle_window(window: &tao::window::Window, visible: bool) {
         use tao::platform::unix::WindowExtUnix;
         let gtk_win = window.gtk_window();
         if visible {
+            let was_hidden = !gtk_win.is_visible();
             gtk_win.show_all();
-            let (w, h) = gtk_win.size();
-            gtk_win.resize(w, h + 1);
+            if was_hidden {
+                // Wayland workaround: unmapping resets compositor state (titlebar
+                // buttons). A 1px resize forces a configure event that restores them.
+                let (w, h) = gtk_win.size();
+                gtk_win.resize(w, h + 1);
+                let win_ref = gtk_win.clone();
+                gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(50),
+                    move || {
+                        win_ref.resize(w, h);
+                    },
+                );
+            }
             gtk_win.present();
-            let win_ref = gtk_win.clone();
-            gtk::glib::timeout_add_local_once(
-                std::time::Duration::from_millis(50),
-                move || {
-                    win_ref.resize(w, h);
-                },
-            );
         } else {
             gtk_win.hide();
         }
@@ -442,6 +506,71 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&result).into_owned()
+}
+
+/// JS initialization script that intercepts Ctrl+W and Ctrl+Q keyboard
+/// shortcuts and forwards them to the host via IPC. WebKitGTK consumes all
+/// key events for webview content, so tao never sees them. Using the capture
+/// phase ensures we intercept before the web app's own handlers.
+fn keyboard_shortcut_script() -> &'static str {
+    r#"document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        if (e.key === 'w' || e.key === 'W') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage('pmma-kbd:close-window');
+        } else if (e.key === 'q' || e.key === 'Q') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage('pmma-kbd:quit-app');
+        }
+    }
+}, true);"#
+}
+
+/// JS evaluated on demand to check if the page's beforeunload handler would
+/// block closing. Dispatches a synthetic beforeunload event and sends the
+/// result back via IPC.
+const BEFOREUNLOAD_CHECK: &str = r#"(function() {
+    var event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    if (event.defaultPrevented || event.returnValue) {
+        window.ipc.postMessage('pmma-close:blocked');
+    } else {
+        window.ipc.postMessage('pmma-close:confirmed');
+    }
+})();"#;
+
+/// Show a GTK confirmation dialog when beforeunload blocks the close.
+/// Returns true if the user chose to leave, false if they chose to stay.
+fn show_close_confirmation(window: &tao::window::Window) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        use tao::platform::unix::WindowExtUnix;
+        let gtk_win = window.gtk_window();
+        let parent: &gtk::Window = gtk_win.upcast_ref();
+        let dialog = gtk::MessageDialog::new(
+            Some(parent),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            gtk::MessageType::Question,
+            gtk::ButtonsType::None,
+            "Leave page?",
+        );
+        dialog.set_secondary_text(Some("Changes you made may not be saved."));
+        dialog.add_button("Stay", gtk::ResponseType::Cancel);
+        dialog.add_button("Leave", gtk::ResponseType::Accept);
+        let response = dialog.run();
+        unsafe {
+            dialog.destroy();
+        }
+        response == gtk::ResponseType::Accept
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window;
+        true
+    }
 }
 
 fn open_in_browser(url: &str) {

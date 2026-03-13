@@ -266,8 +266,27 @@ fn main() -> Result<()> {
                         eprintln!("[debug] inject: JS active");
                     }
                 }
-                let _lock =
-                    profile::acquire_lock(&data_dir, &app_config.name, &profile_name)?;
+                let _lock = match profile::acquire_lock(
+                    &data_dir,
+                    &app_config.name,
+                    &profile_name,
+                ) {
+                    Ok(lock) => lock,
+                    Err(_) => {
+                        if profile::signal_raise(&data_dir).is_ok() {
+                            println!(
+                                "{} (profile '{}') is already running. Raised existing window.",
+                                app_config.name, profile_name
+                            );
+                        } else {
+                            println!(
+                                "{} (profile '{}') is already running.",
+                                app_config.name, profile_name
+                            );
+                        }
+                        return Ok(());
+                    }
+                };
                 app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &effective_url)?;
             }
         }

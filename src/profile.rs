@@ -194,6 +194,25 @@ pub fn acquire_lock(data_dir: &Path, app_name: &str, profile_name: &str) -> Resu
     Ok(file)
 }
 
+/// Create a Unix socket listener for raising the window from a second instance.
+/// Call this after acquiring the flock (so any existing socket file is stale).
+pub fn create_raise_listener(data_dir: &Path) -> Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::net::UnixListener;
+    let sock_path = data_dir.join("raise.sock");
+    // Remove stale socket left by a previous crash (safe because we hold the flock)
+    let _ = std::fs::remove_file(&sock_path);
+    UnixListener::bind(&sock_path)
+        .with_context(|| format!("Failed to create raise socket: {}", sock_path.display()))
+}
+
+/// Signal a running instance to raise its window by connecting to its socket.
+pub fn signal_raise(data_dir: &Path) -> Result<()> {
+    use std::os::unix::net::UnixStream;
+    let sock_path = data_dir.join("raise.sock");
+    let _stream = UnixStream::connect(&sock_path)
+        .with_context(|| "Failed to connect to running instance")?;
+    Ok(())
+}
 
 fn dir_size(path: &Path) -> Result<u64> {
     let mut total = 0;
@@ -312,6 +331,36 @@ mod tests {
         let dir2 = tempfile::tempdir().unwrap();
         let _lock1 = acquire_lock(dir1.path(), "test", "work").unwrap();
         let _lock2 = acquire_lock(dir2.path(), "test", "personal").unwrap();
+    }
+
+    #[test]
+    fn create_and_signal_raise() {
+        let dir = tempfile::tempdir().unwrap();
+        // Must hold the lock first (mimics real usage)
+        let _lock = acquire_lock(dir.path(), "test", "default").unwrap();
+        let listener = create_raise_listener(dir.path()).unwrap();
+        let dir_path = dir.path().to_path_buf();
+        let handle = std::thread::spawn(move || {
+            signal_raise(&dir_path).unwrap();
+        });
+        let (_stream, _) = listener.accept().unwrap();
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn create_raise_listener_removes_stale_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let _lock = acquire_lock(dir.path(), "test", "default").unwrap();
+        let listener1 = create_raise_listener(dir.path()).unwrap();
+        drop(listener1);
+        // Should succeed despite stale socket file from previous run
+        let _listener2 = create_raise_listener(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn signal_raise_fails_without_listener() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(signal_raise(dir.path()).is_err());
     }
 
     #[test]
