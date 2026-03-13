@@ -137,7 +137,7 @@ fn find_icon_from_manifest(html: &str, page_url: &str) -> Option<String> {
         if tag_lower.contains("rel=\"manifest\"") || tag_lower.contains("rel='manifest'") {
             if let Some(href) = extract_href(tag_original) {
                 let manifest_url = resolve_url(href, page_url);
-                return fetch_largest_manifest_icon(&manifest_url, page_url);
+                return fetch_largest_manifest_icon(&manifest_url);
             }
         }
 
@@ -148,7 +148,7 @@ fn find_icon_from_manifest(html: &str, page_url: &str) -> Option<String> {
 }
 
 /// Fetch a web manifest JSON and return the URL of the largest icon.
-fn fetch_largest_manifest_icon(manifest_url: &str, page_url: &str) -> Option<String> {
+fn fetch_largest_manifest_icon(manifest_url: &str) -> Option<String> {
     let response = ureq::get(manifest_url).call().ok()?;
     let body = response.into_body().read_to_vec().ok()?;
     let manifest: serde_json::Value = serde_json::from_slice(&body).ok()?;
@@ -165,7 +165,9 @@ fn fetch_largest_manifest_icon(manifest_url: &str, page_url: &str) -> Option<Str
             .unwrap_or(0);
 
         if best.as_ref().is_none_or(|(best_size, _)| size > *best_size) {
-            best = Some((size, resolve_url(src, page_url)));
+            // Resolve against manifest_url, not page_url: manifest icon paths
+            // are relative to the manifest file's location, not the page.
+            best = Some((size, resolve_url(src, manifest_url)));
         }
     }
 

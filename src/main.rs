@@ -311,7 +311,7 @@ fn main() -> Result<()> {
                     &profile_name,
                 ) {
                     Ok(lock) => lock,
-                    Err(_) => {
+                    Err(e) if e.downcast_ref::<profile::AlreadyRunning>().is_some() => {
                         if profile::signal_raise(&data_dir).is_ok() {
                             println!(
                                 "{} (profile '{}') is already running. Raised existing window.",
@@ -325,6 +325,7 @@ fn main() -> Result<()> {
                         }
                         return Ok(());
                     }
+                    Err(e) => return Err(e),
                 };
                 app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &effective_url)?;
             }

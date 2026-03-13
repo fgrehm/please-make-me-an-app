@@ -44,12 +44,11 @@ pub fn find_binary(backend: &Backend) -> Result<PathBuf> {
 }
 
 /// Build the command-line arguments for launching a Chromium-based browser in app mode.
-pub fn build_args(config: &AppConfig, data_dir: &Path, profile_name: &str, url: &str) -> Vec<String> {
-    let wm_class = if config.profiles.is_empty() {
-        format!("pmma-{}", config.name)
-    } else {
-        format!("pmma-{}--{}", config.name, profile_name)
-    };
+pub fn build_args(config: &AppConfig, data_dir: &Path, _profile_name: &str, url: &str) -> Vec<String> {
+    // Use the Chromium-predicted WM class so StartupWMClass in the .desktop file
+    // matches --class on X11. On Wayland, Chromium ignores --class entirely, but
+    // passing the predicted value here keeps X11 consistent with the desktop file.
+    let wm_class = chromium_wm_class(&config.backend, url);
 
     let mut args = vec![
         format!("--app={}", url),
@@ -193,7 +192,8 @@ mod tests {
         let args = build_args(&config, Path::new("/data/test-app/default"), "default", "https://example.com");
         assert!(args.contains(&"--app=https://example.com".to_string()));
         assert!(args.contains(&"--user-data-dir=/data/test-app/default".to_string()));
-        assert!(args.contains(&"--class=pmma-test-app".to_string()));
+        // --class uses the Chromium-predicted WM class, not pmma-*
+        assert!(args.contains(&"--class=brave-example.com__-Default".to_string()));
         assert!(args.contains(&"--no-first-run".to_string()));
         assert!(args.contains(&"--no-default-browser-check".to_string()));
         assert!(args.contains(&"--window-size=1200,800".to_string()));
@@ -208,7 +208,8 @@ mod tests {
             config::ProfileConfig { name: "personal".to_string() },
         ];
         let args = build_args(&config, Path::new("/data/test-app/work"), "work", "https://example.com");
-        assert!(args.contains(&"--class=pmma-test-app--work".to_string()));
+        // Profile name does not affect --class; the WM class comes from the URL
+        assert!(args.contains(&"--class=google-chrome-example.com__-Default".to_string()));
     }
 
     #[test]

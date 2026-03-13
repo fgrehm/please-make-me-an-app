@@ -170,9 +170,23 @@ pub fn save_window_state(data_dir: &Path, state: &WindowState) {
     }
 }
 
+/// Sentinel error: the lock is held by another process.
+/// Callers that want to raise the existing window should match on this type.
+#[derive(Debug)]
+pub struct AlreadyRunning;
+
+impl std::fmt::Display for AlreadyRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "another instance is already running")
+    }
+}
+
+impl std::error::Error for AlreadyRunning {}
+
 /// Acquire an exclusive lock for an app+profile combination.
 /// Returns the held File (lock is released when dropped).
-/// Fails with a user-friendly message if another instance is already running.
+/// Returns `AlreadyRunning` if another instance holds the lock.
+/// Returns other errors for real failures (permissions, I/O, etc.).
 pub fn acquire_lock(data_dir: &Path, app_name: &str, profile_name: &str) -> Result<File> {
     use std::os::unix::io::AsRawFd;
 
@@ -184,11 +198,16 @@ pub fn acquire_lock(data_dir: &Path, app_name: &str, profile_name: &str) -> Resu
     // flock() is safe to call on any valid fd; it only manipulates advisory locks.
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
-        bail!(
-            "{} (profile '{}') is already running.",
-            app_name,
-            profile_name
-        );
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+            bail!(AlreadyRunning);
+        }
+        return Err(err).with_context(|| {
+            format!(
+                "Failed to lock {} (profile '{}')",
+                app_name, profile_name
+            )
+        });
     }
 
     Ok(file)
@@ -322,7 +341,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let _lock = acquire_lock(dir.path(), "test", "default").unwrap();
         let err = acquire_lock(dir.path(), "test", "default").unwrap_err();
-        assert!(err.to_string().contains("already running"));
+        assert!(
+            err.downcast_ref::<AlreadyRunning>().is_some(),
+            "expected AlreadyRunning, got: {err}"
+        );
     }
 
     #[test]

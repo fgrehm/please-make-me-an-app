@@ -245,8 +245,10 @@ pub fn run(
     let mut window_visible = true;
     let mut close_pending = false;
     event_loop.run(move |event, _, control_flow| {
-        // Always poll: keyboard shortcuts, raise socket, and beforeunload all
-        // use atomic flags set from IPC callbacks or background threads.
+        // Always poll at 250ms. Keyboard shortcuts (always injected), the raise
+        // socket listener thread, and tray menu events all signal via AtomicBool
+        // or a separate channel -- none of them generate tao window events, so
+        // WaitUntil is required to ensure they are checked in a timely manner.
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
 
         // beforeunload check confirmed: safe to close
@@ -564,11 +566,7 @@ fn show_close_confirmation(window: &tao::window::Window) -> bool {
         dialog.add_button("Stay", gtk::ResponseType::Cancel);
         dialog.add_button("Leave", gtk::ResponseType::Accept);
         let response = dialog.run();
-        // SAFETY: dialog is a valid GtkWidget created above. destroy() is the
-        // standard GTK3 pattern for dismissing a dialog after run() returns.
-        unsafe {
-            dialog.destroy();
-        }
+        dialog.close();
         response == gtk::ResponseType::Accept
     }
     #[cfg(not(target_os = "linux"))]
