@@ -250,14 +250,14 @@ pub fn run(
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
 
         // beforeunload check confirmed: safe to close
-        if close_confirmed.swap(false, Ordering::Relaxed) {
+        if close_confirmed.swap(false, Ordering::Acquire) {
             save_window_position(&window, remember_position, &data_dir);
             *control_flow = ControlFlow::Exit;
             return;
         }
 
         // beforeunload blocked the close: ask the user
-        if close_blocked.swap(false, Ordering::Relaxed) {
+        if close_blocked.swap(false, Ordering::Acquire) {
             close_pending = false;
             if show_close_confirmation(&window) {
                 save_window_position(&window, remember_position, &data_dir);
@@ -267,20 +267,20 @@ pub fn run(
         }
 
         // Raise window if requested (notification click, tray click, or another instance)
-        if raise_requested.swap(false, Ordering::Relaxed) {
+        if raise_requested.swap(false, Ordering::Acquire) {
             window_visible = true;
             toggle_window(&window, true);
         }
 
         // Ctrl+Q: quit regardless of tray
-        if quit_requested.swap(false, Ordering::Relaxed) && !close_pending {
+        if quit_requested.swap(false, Ordering::Acquire) && !close_pending {
             close_pending = true;
             let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
             return;
         }
 
         // Ctrl+W: same as X button (hide to tray if enabled, otherwise close)
-        if close_requested.swap(false, Ordering::Relaxed) && !close_pending {
+        if close_requested.swap(false, Ordering::Acquire) && !close_pending {
             if minimize_to_tray {
                 window_visible = false;
                 toggle_window(&window, false);
@@ -561,6 +561,8 @@ fn show_close_confirmation(window: &tao::window::Window) -> bool {
         dialog.add_button("Stay", gtk::ResponseType::Cancel);
         dialog.add_button("Leave", gtk::ResponseType::Accept);
         let response = dialog.run();
+        // SAFETY: dialog is a valid GtkWidget created above. destroy() is the
+        // standard GTK3 pattern for dismissing a dialog after run() returns.
         unsafe {
             dialog.destroy();
         }

@@ -210,7 +210,7 @@ pub fn signal_raise(data_dir: &Path) -> Result<()> {
     use std::os::unix::net::UnixStream;
     let sock_path = data_dir.join("raise.sock");
     let _stream = UnixStream::connect(&sock_path)
-        .with_context(|| "Failed to connect to running instance")?;
+        .context("Failed to connect to running instance")?;
     Ok(())
 }
 
