@@ -77,15 +77,11 @@ fn write_desktop_entry(
         None => String::new(),
     };
     let log_file = format!("/tmp/pmma-{}.log", log_suffix);
-    let wm_class_line = if config.backend.is_browser() {
-        let class = match profile {
-            Some(p) => format!("pmma-{}--{}", app_name, p),
-            None => format!("pmma-{}", app_name),
-        };
-        format!("StartupWMClass={}\n", class)
-    } else {
-        String::new()
+    let wm_class = match profile {
+        Some(p) => format!("pmma-{}--{}", app_name, p),
+        None => format!("pmma-{}", app_name),
     };
+    let wm_class_line = format!("StartupWMClass={}\n", wm_class);
 
     // When url_schemes are registered, pass the activated URL as $1 via %u.
     // sh -c 'script' sh %u  =>  $0=sh, $1=<url from %u>

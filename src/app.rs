@@ -2,6 +2,8 @@ use crate::config::AppConfig;
 use crate::{adblock, icon, inject, notification, profile, tray};
 use anyhow::Result;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
@@ -16,6 +18,17 @@ pub fn run(
     debug: bool,
     url: &str,
 ) -> Result<()> {
+    // Set app-id to match the .desktop file name so the compositor can find
+    // the correct icon for alt-tab, taskbar, etc. On Wayland, GTK uses
+    // g_get_prgname() as the xdg_toplevel app_id.
+    let app_id = if config.profiles.is_empty() {
+        format!("pmma-{}", config.name)
+    } else {
+        format!("pmma-{}--{}", config.name, profile_name)
+    };
+    #[cfg(target_os = "linux")]
+    gtk::glib::set_prgname(Some(&app_id));
+
     let event_loop = EventLoop::new();
 
     let display_title = if config.profiles.is_empty() {
@@ -101,18 +114,28 @@ pub fn run(
         builder = builder.with_initialization_script(notification::dialog_intercept_script());
     }
 
+    // Flag set by notification click handler (background thread) to request
+    // the event loop to raise the window.
+    let raise_requested = Arc::new(AtomicBool::new(false));
+
     let needs_ipc = config.notifications || debug;
     if needs_ipc {
         // Cloned into the IPC closure which must be 'static (outlives this function)
         let app_name = config.name.clone();
         let ipc_icon_path = icon_path.clone();
         let ipc_notifications = config.notifications;
+        let ipc_raise = raise_requested.clone();
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
             if let Some(msg) = body.strip_prefix("pmma-debug:") {
                 eprintln!("{}", msg);
             } else if ipc_notifications {
-                notification::handle_ipc(body, &app_name, ipc_icon_path.as_deref());
+                notification::handle_ipc(
+                    body,
+                    &app_name,
+                    ipc_icon_path.as_deref(),
+                    Some(&ipc_raise),
+                );
             }
         });
     }
@@ -189,11 +212,12 @@ pub fn run(
     let remember_position = config.window.remember_position;
     let data_dir = data_dir.to_path_buf();
     let has_tray = tray_state.is_some();
+    let has_notifications = config.notifications;
+    // Poll when tray or notifications are active (both use separate channels)
+    let needs_polling = has_tray || has_notifications;
     let mut window_visible = true;
     event_loop.run(move |event, _, control_flow| {
-        // Tray menu events arrive via a separate channel, not as tao events.
-        // Poll periodically so we actually receive them.
-        if has_tray {
+        if needs_polling {
             *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(250));
         } else {
             *control_flow = ControlFlow::Wait;
@@ -201,6 +225,12 @@ pub fn run(
 
         // Keep webview alive
         let _ = &_webview;
+
+        // Raise window if a notification was clicked
+        if raise_requested.swap(false, Ordering::Relaxed) && !window_visible {
+            window_visible = true;
+            toggle_window(&window, true);
+        }
 
         // Handle tray events
         if let Some(ref ts) = tray_state {
