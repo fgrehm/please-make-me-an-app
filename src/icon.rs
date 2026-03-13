@@ -100,19 +100,27 @@ fn remove_from_dir(icons_dir: &Path, app_name: &str) {
     }
 }
 
-/// Fetch the page HTML and look for a <link rel="icon"> tag.
+/// Fetch the page HTML and find the best (largest) icon.
+///
+/// Checks, in priority order:
+/// 1. Web app manifest (`<link rel="manifest">`) icons (typically 192-512px)
+/// 2. `<link rel="apple-touch-icon">` (typically 180px)
+/// 3. `<link rel="icon">` with the largest `sizes` attribute
+/// 4. First `<link rel="icon">` found (no sizes)
 fn find_favicon_from_html(page_url: &str) -> Option<String> {
     let response = ureq::get(page_url).call().ok()?;
     let body = response.into_body().read_to_vec().ok()?;
     let html = String::from_utf8_lossy(&body);
-    parse_icon_link(&html, page_url)
+
+    if let Some(url) = find_icon_from_manifest(&html, page_url) {
+        return Some(url);
+    }
+
+    parse_best_icon_link(&html, page_url)
 }
 
-/// Parse HTML for <link> tags with rel="icon" or rel="shortcut icon" and extract the href.
-fn parse_icon_link(html: &str, page_url: &str) -> Option<String> {
-    // html_lower and html are indexed with the same byte offsets. This is safe
-    // because HTML tag names and attribute names are ASCII: to_lowercase() is
-    // byte-for-byte on ASCII, so offsets in html_lower map directly to html.
+/// Parse the web app manifest for the largest icon.
+fn find_icon_from_manifest(html: &str, page_url: &str) -> Option<String> {
     let html_lower = html.to_lowercase();
     let mut pos = 0;
 
@@ -126,13 +134,10 @@ fn parse_icon_link(html: &str, page_url: &str) -> Option<String> {
         let tag_lower = &html_lower[start..=end];
         let tag_original = &html[start..=end];
 
-        if tag_lower.contains("rel=\"icon\"")
-            || tag_lower.contains("rel=\"shortcut icon\"")
-            || tag_lower.contains("rel='icon'")
-            || tag_lower.contains("rel='shortcut icon'")
-        {
+        if tag_lower.contains("rel=\"manifest\"") || tag_lower.contains("rel='manifest'") {
             if let Some(href) = extract_href(tag_original) {
-                return Some(resolve_url(href, page_url));
+                let manifest_url = resolve_url(href, page_url);
+                return fetch_largest_manifest_icon(&manifest_url, page_url);
             }
         }
 
@@ -142,11 +147,91 @@ fn parse_icon_link(html: &str, page_url: &str) -> Option<String> {
     None
 }
 
-/// Extract the href attribute value from an HTML tag.
-fn extract_href(tag: &str) -> Option<&str> {
+/// Fetch a web manifest JSON and return the URL of the largest icon.
+fn fetch_largest_manifest_icon(manifest_url: &str, page_url: &str) -> Option<String> {
+    let response = ureq::get(manifest_url).call().ok()?;
+    let body = response.into_body().read_to_vec().ok()?;
+    let manifest: serde_json::Value = serde_json::from_slice(&body).ok()?;
+
+    let icons = manifest.get("icons")?.as_array()?;
+    let mut best: Option<(u32, String)> = None;
+
+    for icon in icons {
+        let src = icon.get("src")?.as_str()?;
+        let size = icon
+            .get("sizes")
+            .and_then(|s| s.as_str())
+            .and_then(parse_icon_size)
+            .unwrap_or(0);
+
+        if best.as_ref().is_none_or(|(best_size, _)| size > *best_size) {
+            best = Some((size, resolve_url(src, page_url)));
+        }
+    }
+
+    best.map(|(_, url)| url)
+}
+
+/// Parse HTML for all icon-related `<link>` tags and return the best one.
+///
+/// Prefers apple-touch-icon and larger sizes over plain favicons.
+fn parse_best_icon_link(html: &str, page_url: &str) -> Option<String> {
+    let html_lower = html.to_lowercase();
+    let mut best: Option<(u32, String)> = None;
+    let mut pos = 0;
+
+    while let Some(offset) = html_lower[pos..].find("<link") {
+        let start = pos + offset;
+        let end = match html_lower[start..].find('>') {
+            Some(e) => start + e,
+            None => break,
+        };
+
+        let tag_lower = &html_lower[start..=end];
+        let tag_original = &html[start..=end];
+
+        let is_icon = tag_lower.contains("rel=\"icon\"")
+            || tag_lower.contains("rel=\"shortcut icon\"")
+            || tag_lower.contains("rel='icon'")
+            || tag_lower.contains("rel='shortcut icon'");
+
+        let is_apple = tag_lower.contains("rel=\"apple-touch-icon\"")
+            || tag_lower.contains("rel='apple-touch-icon'");
+
+        if is_icon || is_apple {
+            if let Some(href) = extract_href(tag_original) {
+                let size = extract_attr(tag_original, "sizes")
+                    .and_then(parse_icon_size)
+                    // apple-touch-icon defaults to 180 when no sizes attribute
+                    .unwrap_or(if is_apple { 180 } else { 0 });
+
+                if best.as_ref().is_none_or(|(best_size, _)| size > *best_size) {
+                    best = Some((size, resolve_url(href, page_url)));
+                }
+            }
+        }
+
+        pos = end + 1;
+    }
+
+    best.map(|(_, url)| url)
+}
+
+/// Parse a `sizes` attribute value like "192x192" into the larger dimension.
+fn parse_icon_size(sizes: &str) -> Option<u32> {
+    let s = sizes.split_whitespace().next()?;
+    let (w, h) = s.split_once('x').or_else(|| s.split_once('X'))?;
+    let w: u32 = w.parse().ok()?;
+    let h: u32 = h.parse().ok()?;
+    Some(w.max(h))
+}
+
+/// Extract a named attribute value from an HTML tag.
+fn extract_attr<'a>(tag: &'a str, attr_name: &str) -> Option<&'a str> {
     let lower = tag.to_lowercase();
-    let href_pos = lower.find("href=")?;
-    let after = &tag[href_pos + 5..];
+    let needle = format!("{}=", attr_name);
+    let attr_pos = lower.find(&needle)?;
+    let after = &tag[attr_pos + needle.len()..];
 
     if let Some(stripped) = after.strip_prefix('"') {
         let end = stripped.find('"')?;
@@ -158,6 +243,11 @@ fn extract_href(tag: &str) -> Option<&str> {
         let end = after.find(|c: char| c.is_whitespace() || c == '>')?;
         Some(&after[..end])
     }
+}
+
+/// Extract the href attribute value from an HTML tag.
+fn extract_href(tag: &str) -> Option<&str> {
+    extract_attr(tag, "href")
 }
 
 /// Resolve a potentially relative URL against the page URL.
@@ -219,46 +309,46 @@ fn icon_extension(url: &str) -> &str {
 mod tests {
     use super::*;
 
-    // -- parse_icon_link --
+    // -- parse_best_icon_link --
 
     #[test]
     fn parse_icon_link_double_quoted() {
         let html = r#"<html><head><link rel="icon" href="/icon.png"></head></html>"#;
-        let result = parse_icon_link(html, "https://example.com/page");
+        let result = parse_best_icon_link(html, "https://example.com/page");
         assert_eq!(result, Some("https://example.com/icon.png".to_string()));
     }
 
     #[test]
     fn parse_icon_link_single_quoted() {
         let html = "<html><head><link rel='icon' href='/icon.png'></head></html>";
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(result, Some("https://example.com/icon.png".to_string()));
     }
 
     #[test]
     fn parse_icon_link_shortcut_icon() {
         let html = r#"<link rel="shortcut icon" href="/favicon.ico">"#;
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(result, Some("https://example.com/favicon.ico".to_string()));
     }
 
     #[test]
     fn parse_icon_link_no_icon() {
         let html = r#"<link rel="stylesheet" href="/style.css">"#;
-        assert_eq!(parse_icon_link(html, "https://example.com"), None);
+        assert_eq!(parse_best_icon_link(html, "https://example.com"), None);
     }
 
     #[test]
     fn parse_icon_link_absolute_href() {
         let html = r#"<link rel="icon" href="https://cdn.example.com/icon.png">"#;
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(result, Some("https://cdn.example.com/icon.png".to_string()));
     }
 
     #[test]
     fn parse_icon_link_protocol_relative() {
         let html = r#"<link rel="icon" href="//cdn.example.com/icon.png">"#;
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(
             result,
             Some("https://cdn.example.com/icon.png".to_string())
@@ -268,7 +358,7 @@ mod tests {
     #[test]
     fn parse_icon_link_case_insensitive() {
         let html = r#"<LINK REL="ICON" HREF="/icon.png">"#;
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(result, Some("https://example.com/icon.png".to_string()));
     }
 
@@ -278,11 +368,64 @@ mod tests {
             <link rel="stylesheet" href="/style.css">
             <link rel="icon" href="/real-icon.png">
         "#;
-        let result = parse_icon_link(html, "https://example.com");
+        let result = parse_best_icon_link(html, "https://example.com");
         assert_eq!(
             result,
             Some("https://example.com/real-icon.png".to_string())
         );
+    }
+
+    #[test]
+    fn parse_icon_prefers_larger_size() {
+        let html = r#"
+            <link rel="icon" href="/small.png" sizes="16x16">
+            <link rel="icon" href="/large.png" sizes="192x192">
+            <link rel="icon" href="/medium.png" sizes="48x48">
+        "#;
+        let result = parse_best_icon_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/large.png".to_string()));
+    }
+
+    #[test]
+    fn parse_icon_prefers_apple_touch_icon() {
+        let html = r#"
+            <link rel="icon" href="/favicon.ico">
+            <link rel="apple-touch-icon" href="/apple-icon.png">
+        "#;
+        let result = parse_best_icon_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/apple-icon.png".to_string()));
+    }
+
+    #[test]
+    fn parse_icon_apple_touch_with_explicit_size() {
+        let html = r#"
+            <link rel="apple-touch-icon" sizes="192x192" href="/large-apple.png">
+            <link rel="icon" href="/favicon.ico">
+        "#;
+        let result = parse_best_icon_link(html, "https://example.com");
+        assert_eq!(result, Some("https://example.com/large-apple.png".to_string()));
+    }
+
+    // -- parse_icon_size --
+
+    #[test]
+    fn parse_size_standard() {
+        assert_eq!(parse_icon_size("192x192"), Some(192));
+    }
+
+    #[test]
+    fn parse_size_rectangular() {
+        assert_eq!(parse_icon_size("120x180"), Some(180));
+    }
+
+    #[test]
+    fn parse_size_invalid() {
+        assert_eq!(parse_icon_size("any"), None);
+    }
+
+    #[test]
+    fn parse_size_multiple_spaces() {
+        assert_eq!(parse_icon_size("192x192 512x512"), Some(192));
     }
 
     // -- extract_href --

@@ -105,7 +105,8 @@ fn show(
     n.appname(app_name)
         .summary(title)
         .body(body)
-        .action("default", "Open");
+        .action("default", "Open")
+        .timeout(notify_rust::Timeout::Milliseconds(10_000));
 
     if let Some(path) = icon_path {
         n.icon(&path.display().to_string());

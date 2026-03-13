@@ -296,7 +296,10 @@ pub fn run(
             if let Ok(menu_event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                 if menu_event.id == ts.quit_id {
                     save_window_position(&window, remember_position, &data_dir);
-                    *control_flow = ControlFlow::Exit;
+                    // Exit immediately. ControlFlow::Exit waits for GTK cleanup
+                    // and notification threads (wait_for_action) to finish, which
+                    // causes a noticeable delay.
+                    std::process::exit(0);
                 } else if menu_event.id == ts.toggle_id {
                     window_visible = !window_visible;
                     toggle_window(&window, window_visible);
