@@ -196,6 +196,13 @@ pub fn run(
         NewWindowResponse::Deny
     });
 
+    builder = builder.with_download_started_handler(move |_url, dest| {
+        if let Some(chosen) = pick_download_path(dest) {
+            *dest = chosen;
+        }
+        true
+    });
+
     #[cfg(target_os = "linux")]
     let webview = {
         use tao::platform::unix::WindowExtUnix;
@@ -545,6 +552,49 @@ const BEFOREUNLOAD_CHECK: &str = r#"(function() {
         window.ipc.postMessage('pmma-close:confirmed');
     }
 })();"#;
+
+/// Show a GTK file chooser so the user can pick where to save a download.
+/// Returns the chosen path, or None if the user cancelled (download is still
+/// allowed but wry saves to the original suggested destination).
+fn pick_download_path(suggested: &std::path::Path) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        let dialog = gtk::FileChooserDialog::new(
+            Some("Save file"),
+            None::<&gtk::Window>,
+            gtk::FileChooserAction::Save,
+        );
+        dialog.set_do_overwrite_confirmation(true);
+        if let Some(name) = suggested.file_name() {
+            dialog.set_current_name(&name.to_string_lossy());
+        }
+        // Default to XDG Downloads dir, fall back to ~/Downloads, then /tmp
+        let downloads = std::env::var("XDG_DOWNLOAD_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::env::var("HOME")
+                    .map(|h| std::path::PathBuf::from(h).join("Downloads"))
+                    .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+            });
+        dialog.set_current_folder(downloads);
+        dialog.add_button("Cancel", gtk::ResponseType::Cancel);
+        dialog.add_button("Save", gtk::ResponseType::Accept);
+        let response = dialog.run();
+        let chosen = if response == gtk::ResponseType::Accept {
+            dialog.filename()
+        } else {
+            None
+        };
+        dialog.close();
+        return chosen;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = suggested;
+        None
+    }
+}
 
 /// Show a GTK confirmation dialog when beforeunload blocks the close.
 /// Returns true if the user chose to leave, false if they chose to stay.
