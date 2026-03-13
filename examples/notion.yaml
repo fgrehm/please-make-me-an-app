@@ -1,0 +1,17 @@
+name: notion
+url: https://www.notion.so
+window:
+  title: Notion
+  width: 1280
+  height: 860
+  remember_position: true
+user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+navigator:
+  vendor: "Google Inc."
+  platform: "Linux x86_64"
+  chrome: true
+notifications: true
+allowed_domains:
+  - notion.so
+  - notion-static.com
+  - amazonaws.com
