@@ -593,7 +593,7 @@ fn pick_download_path(suggested: &std::path::Path) -> Option<std::path::PathBuf>
             None
         };
         dialog.close();
-        return chosen;
+        chosen
     }
     #[cfg(not(target_os = "linux"))]
     {
