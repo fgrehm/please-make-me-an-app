@@ -19,14 +19,19 @@ Real-world usage improvements across all core features.
 ### Fixes
 
 - Tray window restore on Wayland: call `gtk_window_present()` and force resize to recover compositor state
-- Tray quit no longer hangs: `process::exit(0)` bypasses blocked notification threads
+- All exit paths use `process::exit(0)` to avoid shutdown delay from notification action listener threads
 - All popups denied and opened in system browser (prevents unmanaged GTK windows)
 - flock error handling: `EWOULDBLOCK` (already running) distinguished from real I/O errors
 - Manifest icon URLs resolved against manifest URL, not page URL
 - `--class` arg in browser launch now matches `StartupWMClass`
 - HTML icon parser: `to_ascii_lowercase()` for byte-index slicing (prevents panics on non-ASCII HTML)
-- `chromium_app_name_from_url` strips port, query string, and fragment
+- `chromium_app_name_from_url`: strip port, query, fragment, and userinfo; handle IPv6 brackets; split authority at first of `/?#`
 - `create_raise_listener` failures logged under `--debug` instead of silently dropped
+- `resolve_url` handles pathless base URLs and strips query/fragment before computing relative base
+- `evaluate_script(BEFOREUNLOAD_CHECK)` errors exit immediately instead of leaving window unable to close
+- `fetch_largest_manifest_icon` skips bad icon entries instead of aborting the search
+- `save_as_png` falls back to original format on decode failure (e.g. SVG)
+- Download dir uses `directories::UserDirs::download_dir()` instead of manual env var lookup
 
 ### Other
 
