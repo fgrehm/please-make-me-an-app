@@ -126,10 +126,11 @@ fn chromium_app_name_from_url(url: &str) -> String {
         after_userinfo.rfind(':').map(|i| &after_userinfo[..i]).unwrap_or(after_userinfo)
     };
 
-    // Strip query string and fragment from path
-    let path_only = path
-        .find('?')
-        .or_else(|| path.find('#'))
+    // Strip query string and fragment from path at whichever comes first
+    let path_only = [path.find('?'), path.find('#')]
+        .into_iter()
+        .flatten()
+        .min()
         .map(|i| &path[..i])
         .unwrap_or(path);
 

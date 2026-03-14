@@ -278,8 +278,7 @@ pub fn run(
         // beforeunload check confirmed: safe to close
         if close_confirmed.swap(false, Ordering::Acquire) {
             save_window_position(&window, remember_position, &data_dir);
-            *control_flow = ControlFlow::Exit;
-            return;
+            std::process::exit(0);
         }
 
         // beforeunload blocked the close: ask the user
@@ -287,7 +286,7 @@ pub fn run(
             close_pending = false;
             if show_close_confirmation(&window) {
                 save_window_position(&window, remember_position, &data_dir);
-                *control_flow = ControlFlow::Exit;
+                std::process::exit(0);
             }
             return;
         }
@@ -303,7 +302,7 @@ pub fn run(
             close_pending = true;
             if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                 save_window_position(&window, remember_position, &data_dir);
-                *control_flow = ControlFlow::Exit;
+                std::process::exit(0);
             }
             return;
         }
@@ -317,7 +316,7 @@ pub fn run(
                 close_pending = true;
                 if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                     save_window_position(&window, remember_position, &data_dir);
-                    *control_flow = ControlFlow::Exit;
+                    std::process::exit(0);
                 }
             }
             return;
@@ -328,9 +327,6 @@ pub fn run(
             if let Ok(menu_event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                 if menu_event.id == ts.quit_id {
                     save_window_position(&window, remember_position, &data_dir);
-                    // Exit immediately. ControlFlow::Exit waits for GTK cleanup
-                    // and notification threads (wait_for_action) to finish, which
-                    // causes a noticeable delay.
                     std::process::exit(0);
                 } else if menu_event.id == ts.toggle_id {
                     window_visible = !window_visible;
@@ -360,7 +356,7 @@ pub fn run(
                 close_pending = true;
                 if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                     save_window_position(&window, remember_position, &data_dir);
-                    *control_flow = ControlFlow::Exit;
+                    std::process::exit(0);
                 }
             }
         }
