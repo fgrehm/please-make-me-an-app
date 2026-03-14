@@ -1,4 +1,5 @@
 use crate::config::AppConfig;
+use crate::browser;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -77,15 +78,25 @@ fn write_desktop_entry(
         None => String::new(),
     };
     let log_file = format!("/tmp/pmma-{}.log", log_suffix);
-    let wm_class_line = if config.backend.is_browser() {
-        let class = match profile {
+    let wm_class = if config.backend.is_browser() {
+        // Chromium ignores --class in --app mode on Wayland and generates
+        // its own app_id from the URL. We predict that value here so
+        // StartupWMClass matches for normal (non-URL-scheme) launches.
+        //
+        // When url_schemes are registered, the runtime URL passed via --url
+        // can differ from config.url (different path or query), so Chromium's
+        // actual app_id may not match StartupWMClass. There is no fully stable
+        // value to use here: origin-only breaks normal launches, and full-URL
+        // breaks scheme-activated launches. This is documented in
+        // docs/known-limitations.md under "Browser Mode Limitations".
+        browser::chromium_wm_class(&config.backend, &config.url)
+    } else {
+        match profile {
             Some(p) => format!("pmma-{}--{}", app_name, p),
             None => format!("pmma-{}", app_name),
-        };
-        format!("StartupWMClass={}\n", class)
-    } else {
-        String::new()
+        }
     };
+    let wm_class_line = format!("StartupWMClass={}\n", wm_class);
 
     // When url_schemes are registered, pass the activated URL as $1 via %u.
     // sh -c 'script' sh %u  =>  $0=sh, $1=<url from %u>
@@ -245,6 +256,7 @@ fn parse_exec_config(desktop_contents: &str) -> Option<String> {
                 let rest = after_open.1;
                 let rest = rest.split(" >>").next().unwrap_or(rest);
                 let rest = rest.split(" --profile").next().unwrap_or(rest);
+                let rest = rest.split(" --url").next().unwrap_or(rest);
                 return Some(rest.to_string());
             }
         }
@@ -313,6 +325,16 @@ mod tests {
         assert_eq!(
             parse_exec_config(contents),
             Some("/home/user/.config/please-make-me-an-app/apps/gmail.yaml".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_exec_config_strips_url_flag() {
+        let contents = "[Desktop Entry]\n\
+                         Exec=sh -c '/usr/local/bin/please-make-me-an-app open /home/user/.config/please-make-me-an-app/apps/myapp.yaml --url \"$1\" >>/tmp/pmma-myapp.log 2>&1' sh %u\n";
+        assert_eq!(
+            parse_exec_config(contents),
+            Some("/home/user/.config/please-make-me-an-app/apps/myapp.yaml".to_string())
         );
     }
 

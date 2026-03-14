@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Build the JavaScript that intercepts the Web Notification API and forwards
 /// notifications to the host via IPC.
@@ -66,7 +68,14 @@ pub fn dialog_intercept_script() -> &'static str {
 }
 
 /// Handle an IPC message. If it is a notification message, show a system notification.
-pub fn handle_ipc(message: &str, app_name: &str, icon_path: Option<&Path>) {
+/// If `raise_flag` is provided, clicking the notification sets it to request the
+/// event loop to raise the window.
+pub fn handle_ipc(
+    message: &str,
+    app_name: &str,
+    icon_path: Option<&Path>,
+    raise_flag: Option<&Arc<AtomicBool>>,
+) {
     let parsed: serde_json::Value = match serde_json::from_str(message) {
         Ok(v) => v,
         Err(_) => return,
@@ -82,19 +91,51 @@ pub fn handle_ipc(message: &str, app_name: &str, icon_path: Option<&Path>) {
         .unwrap_or(app_name);
     let body = parsed.get("body").and_then(|b| b.as_str()).unwrap_or("");
 
-    show(title, body, app_name, icon_path);
+    show(title, body, app_name, icon_path, raise_flag);
 }
 
-fn show(title: &str, body: &str, app_name: &str, icon_path: Option<&Path>) {
+/// Spawn a short-lived thread to listen for the notification click action.
+///
+/// Each notification gets its own thread so clicks are handled immediately,
+/// even when multiple notifications are visible at once. The thread exits
+/// after the notification's 10 s timeout or on user interaction, so threads
+/// don't accumulate. Notifications are infrequent enough that per-notification
+/// threads are cheaper than a shared worker that would serialize click handling.
+fn spawn_action_listener(handle: notify_rust::NotificationHandle, flag: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        handle.wait_for_action(|action| {
+            if action == "default" {
+                flag.store(true, Ordering::Release);
+            }
+        });
+    });
+}
+
+fn show(
+    title: &str,
+    body: &str,
+    app_name: &str,
+    icon_path: Option<&Path>,
+    raise_flag: Option<&Arc<AtomicBool>>,
+) {
     let mut n = notify_rust::Notification::new();
-    n.appname(app_name).summary(title).body(body);
+    n.appname(app_name)
+        .summary(title)
+        .body(body)
+        .action("default", "Open")
+        .timeout(notify_rust::Timeout::Milliseconds(10_000));
 
     if let Some(path) = icon_path {
         n.icon(&path.display().to_string());
     }
 
-    if let Err(e) = n.show() {
-        eprintln!("Failed to show notification: {}", e);
+    match n.show() {
+        Ok(handle) => {
+            if let Some(flag) = raise_flag {
+                spawn_action_listener(handle, flag.clone());
+            }
+        }
+        Err(e) => eprintln!("Failed to show notification: {}", e),
     }
 }
 
@@ -113,12 +154,12 @@ mod tests {
     #[test]
     fn handle_ipc_ignores_non_notification() {
         // Should not panic or show anything
-        handle_ipc(r#"{"type": "other"}"#, "test", None);
+        handle_ipc(r#"{"type": "other"}"#, "test", None, None);
     }
 
     #[test]
     fn handle_ipc_ignores_invalid_json() {
-        handle_ipc("not json", "test", None);
+        handle_ipc("not json", "test", None, None);
     }
 
     #[test]

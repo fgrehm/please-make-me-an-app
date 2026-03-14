@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use std::path::Path;
 use tray_icon::menu::{Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -9,7 +8,7 @@ pub struct TrayState {
     pub toggle_id: MenuId,
 }
 
-pub fn create(tooltip: &str, icon_path: Option<&Path>) -> Result<TrayState> {
+pub fn create(tooltip: &str, icon_rgba: Option<(Vec<u8>, u32, u32)>) -> Result<TrayState> {
     let menu = Menu::new();
     let toggle_item = MenuItem::new("Show/Hide", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
@@ -24,7 +23,7 @@ pub fn create(tooltip: &str, icon_path: Option<&Path>) -> Result<TrayState> {
     menu.append(&quit_item)
         .context("Failed to add Quit menu item")?;
 
-    let icon = load_icon(icon_path);
+    let icon = icon_from_rgba(icon_rgba);
 
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
@@ -40,15 +39,10 @@ pub fn create(tooltip: &str, icon_path: Option<&Path>) -> Result<TrayState> {
     })
 }
 
-fn load_icon(path: Option<&Path>) -> Icon {
-    if let Some(path) = path {
-        if let Ok(img) = image::open(path) {
-            let rgba = img.into_rgba8();
-            let width = rgba.width();
-            let height = rgba.height();
-            if let Ok(icon) = Icon::from_rgba(rgba.into_raw(), width, height) {
-                return icon;
-            }
+fn icon_from_rgba(rgba: Option<(Vec<u8>, u32, u32)>) -> Icon {
+    if let Some((data, width, height)) = rgba {
+        if let Ok(icon) = Icon::from_rgba(data, width, height) {
+            return icon;
         }
     }
     default_icon()
@@ -75,14 +69,8 @@ mod tests {
     }
 
     #[test]
-    fn load_icon_falls_back_on_missing_path() {
-        let icon = load_icon(Some(Path::new("/nonexistent/icon.png")));
-        let _ = icon;
-    }
-
-    #[test]
-    fn load_icon_falls_back_on_none() {
-        let icon = load_icon(None);
+    fn icon_from_rgba_falls_back_on_none() {
+        let icon = icon_from_rgba(None);
         let _ = icon;
     }
 }

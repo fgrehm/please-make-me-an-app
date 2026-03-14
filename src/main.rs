@@ -96,15 +96,17 @@ enum Commands {
     ///
     /// Copies the config to the XDG config directory, fetches the site's
     /// favicon, and generates a .desktop file so the app appears in your
-    /// application menu.
+    /// application menu. Pass a config file path for first install, or
+    /// just the app name to reinstall (re-fetch icon, regenerate .desktop).
     #[command(
         after_help = "Examples:\n  \
                       please-make-me-an-app install whatsapp.yaml\n  \
-                      please-make-me-an-app install examples/gmail.yaml",
+                      please-make-me-an-app install examples/gmail.yaml\n  \
+                      please-make-me-an-app install gmail  # reinstall",
     )]
     Install {
-        /// Path to the app config YAML file
-        config: PathBuf,
+        /// Path to config YAML file, or app name to reinstall
+        config: String,
     },
 
     /// List all installed web apps
@@ -156,6 +158,43 @@ enum Commands {
         #[arg(short, long)]
         profile: Option<String>,
     },
+}
+
+/// Resolve the install config argument to a file path.
+///
+/// If the argument looks like a file path (ends in .yaml/.yml or contains a separator),
+/// use it directly. Otherwise treat it as an app name and look up the config path
+/// from the installed .desktop file, allowing `install gmail` to reinstall.
+fn resolve_install_config(config: &str) -> Result<PathBuf> {
+    let path = Path::new(config);
+    if config.ends_with(".yaml")
+        || config.ends_with(".yml")
+        || config.contains(std::path::MAIN_SEPARATOR)
+    {
+        return Ok(path.to_path_buf());
+    }
+
+    // Treat as app name: check XDG config dir first, then installed .desktop files
+    let dirs = config::project_dirs()?;
+    let xdg_config = dirs.config_dir().join("apps").join(format!("{}.yaml", config));
+    if xdg_config.exists() {
+        return Ok(xdg_config);
+    }
+
+    // Fall back to parsing the Exec line from the .desktop file
+    let apps = desktop::list_installed()?;
+    for app in &apps {
+        if app.name == config {
+            if let Some(ref config_path) = app.config_path {
+                return Ok(PathBuf::from(config_path));
+            }
+        }
+    }
+
+    anyhow::bail!(
+        "No installed app named '{}'. Pass a config file path for first install.",
+        config
+    );
 }
 
 /// Copy the config file to the XDG config directory and return the destination path.
@@ -237,7 +276,7 @@ fn main() -> Result<()> {
                         Err(e) => eprintln!("[debug] browser binary: {}", e),
                     }
                 }
-                browser::run(&app_config, &profile_name, &data_dir, &effective_url)?;
+                browser::run(&app_config, &data_dir, &effective_url)?;
             } else {
                 let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
                 if debug {
@@ -266,17 +305,38 @@ fn main() -> Result<()> {
                         eprintln!("[debug] inject: JS active");
                     }
                 }
-                let _lock =
-                    profile::acquire_lock(&data_dir, &app_config.name, &profile_name)?;
+                let _lock = match profile::acquire_lock(
+                    &data_dir,
+                    &app_config.name,
+                    &profile_name,
+                ) {
+                    Ok(lock) => lock,
+                    Err(e) if e.downcast_ref::<profile::AlreadyRunning>().is_some() => {
+                        if profile::signal_raise(&data_dir).is_ok() {
+                            println!(
+                                "{} (profile '{}') is already running. Raised existing window.",
+                                app_config.name, profile_name
+                            );
+                        } else {
+                            println!(
+                                "{} (profile '{}') is already running.",
+                                app_config.name, profile_name
+                            );
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                };
                 app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &effective_url)?;
             }
         }
         Commands::Install { config } => {
-            let app_config = config::load(&config)?;
+            let config_path = resolve_install_config(&config)?;
+            let app_config = config::load(&config_path)?;
             if app_config.backend.is_browser() {
                 browser::warn_ignored_options(&app_config);
             }
-            let installed_config = install_config(&app_config.name, &config)?;
+            let installed_config = install_config(&app_config.name, &config_path)?;
             let icon_path = icon::fetch(&app_config)?;
             desktop::generate(&app_config, &installed_config, icon_path.as_deref())?;
             if app_config.profiles.is_empty() {

@@ -44,12 +44,11 @@ pub fn find_binary(backend: &Backend) -> Result<PathBuf> {
 }
 
 /// Build the command-line arguments for launching a Chromium-based browser in app mode.
-pub fn build_args(config: &AppConfig, data_dir: &Path, profile_name: &str, url: &str) -> Vec<String> {
-    let wm_class = if config.profiles.is_empty() {
-        format!("pmma-{}", config.name)
-    } else {
-        format!("pmma-{}--{}", config.name, profile_name)
-    };
+pub fn build_args(config: &AppConfig, data_dir: &Path, url: &str) -> Vec<String> {
+    // Use the Chromium-predicted WM class so StartupWMClass in the .desktop file
+    // matches --class on X11. On Wayland, Chromium ignores --class entirely, but
+    // passing the predicted value here keeps X11 consistent with the desktop file.
+    let wm_class = chromium_wm_class(&config.backend, url);
 
     let mut args = vec![
         format!("--app={}", url),
@@ -70,10 +69,10 @@ pub fn build_args(config: &AppConfig, data_dir: &Path, profile_name: &str, url: 
 }
 
 /// Launch a Chromium-based browser in app mode and wait for it to exit.
-pub fn run(config: &AppConfig, profile_name: &str, data_dir: &Path, url: &str) -> Result<()> {
+pub fn run(config: &AppConfig, data_dir: &Path, url: &str) -> Result<()> {
     let binary = find_binary(&config.backend)?;
     let browser_data_dir = data_dir.join("chromium-data");
-    let args = build_args(config, &browser_data_dir, profile_name, url);
+    let args = build_args(config, &browser_data_dir, url);
 
     let status = std::process::Command::new(&binary)
         .args(&args)
@@ -87,6 +86,72 @@ pub fn run(config: &AppConfig, profile_name: &str, data_dir: &Path, url: &str) -
     }
 
     Ok(())
+}
+
+/// Replicate Chromium's `GenerateApplicationNameFromURL()`.
+///
+/// Given `"https://claude.ai/"`, produces `"claude.ai__"`.
+/// The algorithm is: `(host + "_" + path).replace('/', '_')`.
+/// Port, query string, and fragment are excluded (Chromium uses only host + path).
+fn chromium_app_name_from_url(url: &str) -> String {
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+
+    // Split authority from path at the first '/', '?', or '#'.
+    // URLs like "example.com?x=1" (no explicit path slash) must not leak
+    // query/fragment into host_port.
+    let authority_end = without_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(without_scheme.len());
+    let host_port = &without_scheme[..authority_end];
+    let remainder = &without_scheme[authority_end..];
+    let path = if remainder.is_empty() || !remainder.starts_with('/') {
+        "/"
+    } else {
+        remainder
+    };
+
+    // Strip userinfo ("user:pass@host" -> "host") then strip port.
+    // IPv6 literals are bracketed ("[::1]:3000"), so find the closing ']'
+    // rather than the last ':', which would incorrectly split inside the address.
+    let after_userinfo = host_port
+        .find('@')
+        .map(|i| &host_port[i + 1..])
+        .unwrap_or(host_port);
+    let host = if after_userinfo.starts_with('[') {
+        after_userinfo.find(']').map(|i| &after_userinfo[..=i]).unwrap_or(after_userinfo)
+    } else {
+        after_userinfo.rfind(':').map(|i| &after_userinfo[..i]).unwrap_or(after_userinfo)
+    };
+
+    // Strip query string and fragment from path at whichever comes first
+    let path_only = [path.find('?'), path.find('#')]
+        .into_iter()
+        .flatten()
+        .min()
+        .map(|i| &path[..i])
+        .unwrap_or(path);
+
+    format!("{}_{}", host, path_only).replace('/', "_")
+}
+
+/// The Wayland `app_id` that Chromium sets in `--app` mode.
+///
+/// Chromium ignores `--class` for app windows on Wayland and generates
+/// its own `app_id` from the URL: `<browser>-<url_app_name>-Default`.
+/// This must match `StartupWMClass` in the `.desktop` file for icon
+/// matching to work.
+pub fn chromium_wm_class(backend: &Backend, url: &str) -> String {
+    let prefix = match backend {
+        Backend::Brave => "brave",
+        Backend::Chrome => "google-chrome",
+        Backend::Chromium => "chromium-browser",
+        Backend::Webview => unreachable!("chromium_wm_class called with webview backend"),
+    };
+    let app_name = chromium_app_name_from_url(url);
+    format!("{}-{}-Default", prefix, app_name)
 }
 
 /// Print warnings for config options that are ignored in browser mode.
@@ -155,10 +220,11 @@ mod tests {
     fn build_args_basic() {
         let mut config = config::test_config();
         config.backend = Backend::Brave;
-        let args = build_args(&config, Path::new("/data/test-app/default"), "default", "https://example.com");
+        let args = build_args(&config, Path::new("/data/test-app/default"), "https://example.com");
         assert!(args.contains(&"--app=https://example.com".to_string()));
         assert!(args.contains(&"--user-data-dir=/data/test-app/default".to_string()));
-        assert!(args.contains(&"--class=pmma-test-app".to_string()));
+        // --class uses the Chromium-predicted WM class, not pmma-*
+        assert!(args.contains(&"--class=brave-example.com__-Default".to_string()));
         assert!(args.contains(&"--no-first-run".to_string()));
         assert!(args.contains(&"--no-default-browser-check".to_string()));
         assert!(args.contains(&"--window-size=1200,800".to_string()));
@@ -172,8 +238,9 @@ mod tests {
             config::ProfileConfig { name: "work".to_string() },
             config::ProfileConfig { name: "personal".to_string() },
         ];
-        let args = build_args(&config, Path::new("/data/test-app/work"), "work", "https://example.com");
-        assert!(args.contains(&"--class=pmma-test-app--work".to_string()));
+        let args = build_args(&config, Path::new("/data/test-app/work"), "https://example.com");
+        // Profile name does not affect --class; the WM class comes from the URL
+        assert!(args.contains(&"--class=google-chrome-example.com__-Default".to_string()));
     }
 
     #[test]
@@ -189,4 +256,114 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[test]
+    fn chromium_app_name_simple_host() {
+        assert_eq!(chromium_app_name_from_url("https://claude.ai/"), "claude.ai__");
+    }
+
+    #[test]
+    fn chromium_app_name_no_trailing_slash() {
+        // URL without trailing slash gets implied /
+        assert_eq!(chromium_app_name_from_url("https://claude.ai"), "claude.ai__");
+    }
+
+    #[test]
+    fn chromium_app_name_with_path() {
+        assert_eq!(
+            chromium_app_name_from_url("https://mail.google.com/mail/u/0/"),
+            "mail.google.com__mail_u_0_"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_port() {
+        assert_eq!(
+            chromium_app_name_from_url("https://localhost:3000/app"),
+            "localhost__app"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_query() {
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com/path?foo=bar"),
+            "example.com__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_fragment() {
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com/path#section"),
+            "example.com__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_query_without_path() {
+        // URL like "https://example.com?x=1" (no path slash before query)
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com?x=1"),
+            "example.com__"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_fragment_without_path() {
+        // URL like "https://example.com#frag" (no path slash before fragment)
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com#frag"),
+            "example.com__"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_userinfo() {
+        // userinfo must be stripped so rfind(':') doesn't split inside "user:pass"
+        assert_eq!(
+            chromium_app_name_from_url("https://user:pass@example.com/app"),
+            "example.com__app"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_ipv6_no_port() {
+        // rfind(':') would incorrectly split inside "[::1]" without the bracket check
+        assert_eq!(
+            chromium_app_name_from_url("https://[::1]/path"),
+            "[::1]__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_ipv6_with_port() {
+        assert_eq!(
+            chromium_app_name_from_url("https://[::1]:3000/path"),
+            "[::1]__path"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_brave() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Brave, "https://claude.ai/"),
+            "brave-claude.ai__-Default"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_chrome() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Chrome, "https://mail.google.com/mail/"),
+            "google-chrome-mail.google.com__mail_-Default"
+        );
+    }
+
+    #[test]
+    fn chromium_wm_class_chromium() {
+        assert_eq!(
+            chromium_wm_class(&Backend::Chromium, "https://example.com"),
+            "chromium-browser-example.com__-Default"
+        );
+    }
 }

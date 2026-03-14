@@ -42,19 +42,25 @@ Ad blocking is implemented via JavaScript API interception (patching `fetch`, `X
 
 For full content blocking, WebKitGTK's native `WebKitUserContentFilter` API would be needed, but wry does not expose it. See [docs/ad-blocking.md](ad-blocking.md) for the research.
 
-## System Tray Event Loop
+## Event Loop Polling
 
-Tray menu events (Quit, Show/Hide) use a separate channel (`tray_icon::menu::MenuEvent::receiver()`) that is not part of tao's event system. With `ControlFlow::Wait`, the event loop blocks until a tao window event arrives, so tray menu clicks are never processed.
+Several features signal the event loop via `AtomicBool` flags or separate channels that are not connected to tao's event system:
 
-**How it's handled:** When the tray is enabled, the event loop uses `ControlFlow::WaitUntil` with a 250ms timeout instead of `ControlFlow::Wait`. This wakes the loop ~4 times per second to check the tray channel. When no tray is configured, the loop uses `Wait` with zero overhead.
+- Tray menu events (Quit, Show/Hide) go through `tray_icon::menu::MenuEvent::receiver()`
+- Keyboard shortcuts (Ctrl+W, Ctrl+Q) are set from wry's IPC callback thread
+- The raise socket listener signals from a background thread
 
-## External Link Popups and Ads
+With `ControlFlow::Wait`, the event loop blocks until a tao window event arrives, so none of these would be processed in a timely manner.
 
-Sites with ads (e.g., Pomofocus) may trigger `window.open()` or `target="_blank"` links to ad/tracker domains. If these were opened via `xdg-open`, they would flood the user's system browser with ad tabs.
+**How it's handled:** The event loop uses `ControlFlow::WaitUntil` with a 250ms timeout unconditionally. This wakes the loop ~4 times per second regardless of whether a tray is configured. The proper fix (waking via `EventLoopProxy` from each signal source) is deferred as future work.
 
-**How it's handled:** The `with_new_window_req_handler` silently denies new window requests to domains outside the app domain and `allowed_domains`. Only the navigation handler (top-level navigations from user clicks) opens external URLs in the system browser. Combined with the JS-based ad blocker (`adblock: true` by default), this prevents most ad spam.
+## Popup Windows
 
-For apps that auto-navigate to cross-domain URLs programmatically (e.g., banking sites with fraud-detection redirects), set `open_external_links: false` to silently drop those navigations instead of sending them to the system browser.
+All `window.open()` and `target="_blank"` requests are denied and opened in the system browser instead. This is intentional: wry/WebKitGTK's `NewWindowResponse::Allow` creates unmanaged GTK popup windows with no icon, navigation handler, tray integration, or CSS/JS injection, producing a broken UX for login flows, link clicks, and ads alike.
+
+Google redirect URLs (`google.com/url?q=<encoded-url>`) are automatically unwrapped to extract the real destination before opening in the browser.
+
+Combined with the JS-based ad blocker (`adblock: true` by default), this prevents most ad popup spam. For apps that auto-navigate to cross-domain URLs programmatically (e.g., banking sites with fraud-detection redirects), set `open_external_links: false` to silently drop external navigations.
 
 ## Maximize/Minimize Buttons Disabled on KDE Plasma
 
@@ -107,13 +113,25 @@ Apps that use extensions only for optional features (e.g., a "share to X" button
 
 When `backend` is set to `brave`, `chrome`, or `chromium`, the app launches in the system browser's app mode (`--app`) instead of the embedded WebKitGTK webview. This is a fallback for sites that don't work with WebKitGTK (Cloudflare Turnstile, WebAuthn, etc.). Browser mode has its own trade-offs.
 
+### Alt-tab / taskbar icon on Wayland
+
+Chromium ignores the `--class` flag for `--app` mode windows on Wayland. Instead, it generates its own `app_id` from the URL (e.g., `brave-claude.ai__-Default`). This is an upstream Chromium bug ([#40657304](https://issues.chromium.org/issues/40657304)).
+
+please-make-me-an-app predicts the `app_id` that Chromium will generate and sets `StartupWMClass` accordingly in the `.desktop` file. However, KDE Plasma may not match windows by `StartupWMClass` reliably on Wayland, causing the app to show a generic icon in alt-tab and the taskbar instead of the configured favicon.
+
+Because the `app_id` is derived from the URL (not the profile name), all profiles of the same app share the same `StartupWMClass`. This means per-profile `.desktop` entries cannot be distinguished by WM_CLASS on X11 when multiple profiles are open concurrently.
+
+When `url_schemes` are registered, the URL activated at runtime (via `--url "$1"`) can have a different path or query string than `config.url`. Chromium generates its `app_id` from the runtime `--app=` URL, so the actual `app_id` may differ from `StartupWMClass` (which is derived from `config.url` at install time). There is no fully stable value to use: origin-only would break normal (non-scheme) launches, and full-URL breaks scheme-activated launches.
+
+**Status:** Upstream Chromium issue. No reliable workaround from outside the browser process.
+
 ### What works in browser mode
 
 - **Profile isolation** via `--user-data-dir` (full cookie, localStorage, and cache isolation per profile)
 - **.desktop file generation** with icons and per-profile entries
 - **Window size** from config (passed as `--window-size`)
 - **Single instance** (Chromium enforces one instance per user-data-dir natively)
-- **StartupWMClass** set in .desktop files for window/launcher matching
+- **StartupWMClass** set in .desktop files for window/launcher matching (may not work on Wayland, see above)
 
 ### What does not apply in browser mode
 
