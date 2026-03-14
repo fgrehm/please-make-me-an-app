@@ -256,6 +256,7 @@ fn parse_exec_config(desktop_contents: &str) -> Option<String> {
                 let rest = after_open.1;
                 let rest = rest.split(" >>").next().unwrap_or(rest);
                 let rest = rest.split(" --profile").next().unwrap_or(rest);
+                let rest = rest.split(" --url").next().unwrap_or(rest);
                 return Some(rest.to_string());
             }
         }
@@ -324,6 +325,16 @@ mod tests {
         assert_eq!(
             parse_exec_config(contents),
             Some("/home/user/.config/please-make-me-an-app/apps/gmail.yaml".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_exec_config_strips_url_flag() {
+        let contents = "[Desktop Entry]\n\
+                         Exec=sh -c '/usr/local/bin/please-make-me-an-app open /home/user/.config/please-make-me-an-app/apps/myapp.yaml --url \"$1\" >>/tmp/pmma-myapp.log 2>&1' sh %u\n";
+        assert_eq!(
+            parse_exec_config(contents),
+            Some("/home/user/.config/please-make-me-an-app/apps/myapp.yaml".to_string())
         );
     }
 
