@@ -113,13 +113,17 @@ fn chromium_app_name_from_url(url: &str) -> String {
         remainder
     };
 
-    // Strip port from host: "example.com:8080" -> "example.com".
+    // Strip userinfo ("user:pass@host" -> "host") then strip port.
     // IPv6 literals are bracketed ("[::1]:3000"), so find the closing ']'
     // rather than the last ':', which would incorrectly split inside the address.
-    let host = if host_port.starts_with('[') {
-        host_port.find(']').map(|i| &host_port[..=i]).unwrap_or(host_port)
+    let after_userinfo = host_port
+        .find('@')
+        .map(|i| &host_port[i + 1..])
+        .unwrap_or(host_port);
+    let host = if after_userinfo.starts_with('[') {
+        after_userinfo.find(']').map(|i| &after_userinfo[..=i]).unwrap_or(after_userinfo)
     } else {
-        host_port.rfind(':').map(|i| &host_port[..i]).unwrap_or(host_port)
+        after_userinfo.rfind(':').map(|i| &after_userinfo[..i]).unwrap_or(after_userinfo)
     };
 
     // Strip query string and fragment from path
@@ -309,6 +313,15 @@ mod tests {
         assert_eq!(
             chromium_app_name_from_url("https://example.com#frag"),
             "example.com__"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_userinfo() {
+        // userinfo must be stripped so rfind(':') doesn't split inside "user:pass"
+        assert_eq!(
+            chromium_app_name_from_url("https://user:pass@example.com/app"),
+            "example.com__app"
         );
     }
 
