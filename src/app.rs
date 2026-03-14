@@ -29,6 +29,11 @@ pub fn run(
     #[cfg(target_os = "linux")]
     gtk::glib::set_prgname(Some(&app_id));
 
+    // Bind the raise socket immediately after acquiring the flock (in main) so that
+    // a second instance signalling raise does not miss the socket during window/webview
+    // setup. The thread that reads from the socket is spawned below, after the flags.
+    let raise_listener = profile::create_raise_listener(data_dir);
+
     let event_loop = EventLoop::new();
 
     let display_title = if config.profiles.is_empty() {
@@ -238,8 +243,8 @@ pub fn run(
         None
     };
 
-    // Listen for raise signals from second instances (via Unix socket)
-    match profile::create_raise_listener(data_dir) {
+    // Spawn the raise listener thread now that raise_requested is available.
+    match raise_listener {
         Ok(listener) => {
             let listener_raise = raise_requested.clone();
             std::thread::spawn(move || {
@@ -296,7 +301,10 @@ pub fn run(
         // Ctrl+Q: quit regardless of tray
         if quit_requested.swap(false, Ordering::Acquire) && !close_pending {
             close_pending = true;
-            let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
+            if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
+                save_window_position(&window, remember_position, &data_dir);
+                *control_flow = ControlFlow::Exit;
+            }
             return;
         }
 
@@ -307,7 +315,10 @@ pub fn run(
                 toggle_window(&window, false);
             } else {
                 close_pending = true;
-                let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
+                if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
+                    save_window_position(&window, remember_position, &data_dir);
+                    *control_flow = ControlFlow::Exit;
+                }
             }
             return;
         }
@@ -347,7 +358,10 @@ pub fn run(
                 toggle_window(&window, false);
             } else if !close_pending {
                 close_pending = true;
-                let _ = webview.evaluate_script(BEFOREUNLOAD_CHECK);
+                if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
+                    save_window_position(&window, remember_position, &data_dir);
+                    *control_flow = ControlFlow::Exit;
+                }
             }
         }
     });

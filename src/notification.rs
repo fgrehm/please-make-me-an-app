@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, OnceLock};
 
 /// Build the JavaScript that intercepts the Web Notification API and forwards
@@ -95,17 +95,20 @@ pub fn handle_ipc(
     show(title, body, app_name, icon_path, raise_flag);
 }
 
-/// Returns a sender to the single background thread that calls `wait_for_action`.
+/// Returns the sender to the single background thread that calls `wait_for_action`.
 ///
 /// A single worker processes action callbacks sequentially. Because each
 /// notification has a 10 s timeout, the worst-case delay per queued item is
-/// bounded. This avoids spawning an unbounded number of blocked threads when
-/// many notifications arrive in quick succession.
-fn action_sender() -> &'static Sender<(notify_rust::NotificationHandle, Arc<AtomicBool>)> {
-    static SENDER: OnceLock<Sender<(notify_rust::NotificationHandle, Arc<AtomicBool>)>> =
+/// bounded. The channel capacity (64) caps memory usage; when full, incoming
+/// action tasks are dropped (raise-on-click is best-effort).
+fn action_sender() -> &'static SyncSender<(notify_rust::NotificationHandle, Arc<AtomicBool>)> {
+    static SENDER: OnceLock<SyncSender<(notify_rust::NotificationHandle, Arc<AtomicBool>)>> =
         OnceLock::new();
     SENDER.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<(notify_rust::NotificationHandle, Arc<AtomicBool>)>();
+        let (tx, rx) =
+            std::sync::mpsc::sync_channel::<(notify_rust::NotificationHandle, Arc<AtomicBool>)>(
+                64,
+            );
         std::thread::spawn(move || {
             for (handle, flag) in rx {
                 handle.wait_for_action(|action| {
@@ -140,7 +143,7 @@ fn show(
     match n.show() {
         Ok(handle) => {
             if let Some(flag) = raise_flag {
-                let _ = action_sender().send((handle, flag.clone()));
+                let _ = action_sender().try_send((handle, flag.clone()));
             }
         }
         Err(e) => eprintln!("Failed to show notification: {}", e),

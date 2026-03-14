@@ -104,10 +104,13 @@ fn chromium_app_name_from_url(url: &str) -> String {
         None => (without_scheme, "/"),
     };
 
-    // Strip port from host (e.g. "example.com:8080" -> "example.com")
-    let host = match host_port.rfind(':') {
-        Some(i) => &host_port[..i],
-        None => host_port,
+    // Strip port from host: "example.com:8080" -> "example.com".
+    // IPv6 literals are bracketed ("[::1]:3000"), so find the closing ']'
+    // rather than the last ':', which would incorrectly split inside the address.
+    let host = if host_port.starts_with('[') {
+        host_port.find(']').map(|i| &host_port[..=i]).unwrap_or(host_port)
+    } else {
+        host_port.rfind(':').map(|i| &host_port[..i]).unwrap_or(host_port)
     };
 
     // Strip query string and fragment from path
@@ -279,6 +282,23 @@ mod tests {
         assert_eq!(
             chromium_app_name_from_url("https://example.com/path#section"),
             "example.com__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_ipv6_no_port() {
+        // rfind(':') would incorrectly split inside "[::1]" without the bracket check
+        assert_eq!(
+            chromium_app_name_from_url("https://[::1]/path"),
+            "[::1]__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_ipv6_with_port() {
+        assert_eq!(
+            chromium_app_name_from_url("https://[::1]:3000/path"),
+            "[::1]__path"
         );
     }
 

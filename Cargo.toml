@@ -13,6 +13,8 @@ directories = "6"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
+# png+ico: primary favicon formats. jpeg/gif/webp: some sites (WordPress, PWAs) serve
+# favicons in these formats; decoding fails silently if the feature is absent.
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "webp"] }
 notify-rust = "4"
 serde_json = "1"
