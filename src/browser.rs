@@ -92,18 +92,32 @@ pub fn run(config: &AppConfig, profile_name: &str, data_dir: &Path, url: &str) -
 ///
 /// Given `"https://claude.ai/"`, produces `"claude.ai__"`.
 /// The algorithm is: `(host + "_" + path).replace('/', '_')`.
+/// Port, query string, and fragment are excluded (Chromium uses only host + path).
 fn chromium_app_name_from_url(url: &str) -> String {
     let without_scheme = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url);
 
-    let (host, path) = match without_scheme.find('/') {
+    let (host_port, path) = match without_scheme.find('/') {
         Some(i) => (&without_scheme[..i], &without_scheme[i..]),
         None => (without_scheme, "/"),
     };
 
-    format!("{}_{}", host, path).replace('/', "_")
+    // Strip port from host (e.g. "example.com:8080" -> "example.com")
+    let host = match host_port.rfind(':') {
+        Some(i) => &host_port[..i],
+        None => host_port,
+    };
+
+    // Strip query string and fragment from path
+    let path_only = path
+        .find('?')
+        .or_else(|| path.find('#'))
+        .map(|i| &path[..i])
+        .unwrap_or(path);
+
+    format!("{}_{}", host, path_only).replace('/', "_")
 }
 
 /// The Wayland `app_id` that Chromium sets in `--app` mode.
@@ -241,6 +255,30 @@ mod tests {
         assert_eq!(
             chromium_app_name_from_url("https://mail.google.com/mail/u/0/"),
             "mail.google.com__mail_u_0_"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_port() {
+        assert_eq!(
+            chromium_app_name_from_url("https://localhost:3000/app"),
+            "localhost__app"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_query() {
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com/path?foo=bar"),
+            "example.com__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_strips_fragment() {
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com/path#section"),
+            "example.com__path"
         );
     }
 

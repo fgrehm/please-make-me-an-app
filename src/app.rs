@@ -239,16 +239,23 @@ pub fn run(
     };
 
     // Listen for raise signals from second instances (via Unix socket)
-    if let Ok(listener) = profile::create_raise_listener(data_dir) {
-        let listener_raise = raise_requested.clone();
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(_) => listener_raise.store(true, Ordering::Release),
-                    Err(_) => break,
+    match profile::create_raise_listener(data_dir) {
+        Ok(listener) => {
+            let listener_raise = raise_requested.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    match stream {
+                        Ok(_) => listener_raise.store(true, Ordering::Release),
+                        Err(_) => break,
+                    }
                 }
+            });
+        }
+        Err(e) => {
+            if debug {
+                eprintln!("[debug] raise listener failed (raise-existing-window disabled): {}", e);
             }
-        });
+        }
     }
 
     let minimize_to_tray = config.tray.enabled && config.tray.minimize_to_tray;
