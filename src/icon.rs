@@ -56,7 +56,8 @@ fn save_as_png(dir: &Path, name: &str, bytes: &[u8], source_url: &str) -> Result
             // Can't decode (e.g. SVG) - save with original extension
             let ext = icon_extension(source_url);
             let fallback_path = dir.join(format!("{}.{}", name, ext));
-            std::fs::write(&fallback_path, bytes)?;
+            std::fs::write(&fallback_path, bytes)
+                .with_context(|| format!("Failed to save icon: {}", fallback_path.display()))?;
             return Ok(fallback_path);
         }
     }
