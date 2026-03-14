@@ -592,10 +592,11 @@ fn pick_download_path(suggested: &std::path::Path) -> Option<std::path::PathBuf>
         if let Some(name) = suggested.file_name() {
             dialog.set_current_name(&name.to_string_lossy());
         }
-        // Default to XDG Downloads dir, fall back to ~/Downloads, then /tmp
-        let downloads = std::env::var("XDG_DOWNLOAD_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
+        // Use the XDG user-dirs download directory (reads ~/.config/user-dirs.dirs),
+        // fall back to ~/Downloads, then /tmp.
+        let downloads = directories::UserDirs::new()
+            .and_then(|u| u.download_dir().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| {
                 std::env::var("HOME")
                     .map(|h| std::path::PathBuf::from(h).join("Downloads"))
                     .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
