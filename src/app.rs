@@ -119,6 +119,20 @@ pub fn run(
         builder = builder.with_initialization_script(notification::dialog_intercept_script());
     }
 
+    // Per-launch IPC token: injected into init scripts and validated in the IPC
+    // handler so that only our scripts (not arbitrary page JS) can trigger host
+    // actions like quit, close, or beforeunload confirmation.
+    let ipc_token: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+        ^ std::process::id() as u64;
+    let ipc_token = format!("{:x}", ipc_token);
+    builder = builder.with_initialization_script(format!(
+        "Object.defineProperty(window, '__pmma_token', {{value: '{}', configurable: false, writable: false}});",
+        ipc_token
+    ));
+
     // Keyboard shortcuts (Ctrl+W to close window, Ctrl+Q to quit)
     builder = builder.with_initialization_script(keyboard_shortcut_script());
 
@@ -140,18 +154,20 @@ pub fn run(
         let ipc_quit = quit_requested.clone();
         let ipc_confirmed = close_confirmed.clone();
         let ipc_blocked = close_blocked.clone();
+        let ipc_token_prefix = format!("{}:", ipc_token);
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
             if let Some(msg) = body.strip_prefix("pmma-debug:") {
                 eprintln!("{}", msg);
-            } else if body == "pmma-kbd:close-window" {
-                ipc_close.store(true, Ordering::Release);
-            } else if body == "pmma-kbd:quit-app" {
-                ipc_quit.store(true, Ordering::Release);
-            } else if body == "pmma-close:confirmed" {
-                ipc_confirmed.store(true, Ordering::Release);
-            } else if body == "pmma-close:blocked" {
-                ipc_blocked.store(true, Ordering::Release);
+            } else if let Some(cmd) = body.strip_prefix(&ipc_token_prefix) {
+                // Token-authenticated host control messages
+                match cmd {
+                    "pmma-kbd:close-window" => ipc_close.store(true, Ordering::Release),
+                    "pmma-kbd:quit-app" => ipc_quit.store(true, Ordering::Release),
+                    "pmma-close:confirmed" => ipc_confirmed.store(true, Ordering::Release),
+                    "pmma-close:blocked" => ipc_blocked.store(true, Ordering::Release),
+                    _ => {}
+                }
             } else if ipc_notifications {
                 notification::handle_ipc(
                     body,
@@ -549,14 +565,15 @@ fn percent_decode(s: &str) -> String {
 fn keyboard_shortcut_script() -> &'static str {
     r#"document.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        var t = window.__pmma_token || '';
         if (e.key === 'w' || e.key === 'W') {
             e.preventDefault();
             e.stopPropagation();
-            window.ipc.postMessage('pmma-kbd:close-window');
+            window.ipc.postMessage(t + ':pmma-kbd:close-window');
         } else if (e.key === 'q' || e.key === 'Q') {
             e.preventDefault();
             e.stopPropagation();
-            window.ipc.postMessage('pmma-kbd:quit-app');
+            window.ipc.postMessage(t + ':pmma-kbd:quit-app');
         }
     }
 }, true);"#
@@ -566,12 +583,13 @@ fn keyboard_shortcut_script() -> &'static str {
 /// block closing. Dispatches a synthetic beforeunload event and sends the
 /// result back via IPC.
 const BEFOREUNLOAD_CHECK: &str = r#"(function() {
+    var t = window.__pmma_token || '';
     var event = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(event);
     if (event.defaultPrevented || event.returnValue) {
-        window.ipc.postMessage('pmma-close:blocked');
+        window.ipc.postMessage(t + ':pmma-close:blocked');
     } else {
-        window.ipc.postMessage('pmma-close:confirmed');
+        window.ipc.postMessage(t + ':pmma-close:confirmed');
     }
 })();"#;
 
