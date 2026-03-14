@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::SyncSender;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 /// Build the JavaScript that intercepts the Web Notification API and forwards
 /// notifications to the host via IPC.
@@ -95,26 +94,22 @@ pub fn handle_ipc(
     show(title, body, app_name, icon_path, raise_flag);
 }
 
-/// Single background worker that calls `wait_for_action` on notification handles.
+/// Spawn a short-lived thread to listen for the notification click action.
 ///
-/// A single worker processes action callbacks sequentially. Because each
-/// notification has a 10 s timeout, the worst-case delay per queued item is
-/// bounded. The channel capacity (64) caps memory usage; when full, incoming
-/// action tasks are dropped (raise-on-click is best-effort).
-static ACTION_SENDER: LazyLock<SyncSender<(notify_rust::NotificationHandle, Arc<AtomicBool>)>> =
-    LazyLock::new(|| {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<(notify_rust::NotificationHandle, Arc<AtomicBool>)>(64);
-        std::thread::spawn(move || {
-            for (handle, flag) in rx {
-                handle.wait_for_action(|action| {
-                    if action == "default" {
-                        flag.store(true, Ordering::Release);
-                    }
-                });
+/// Each notification gets its own thread so clicks are handled immediately,
+/// even when multiple notifications are visible at once. The thread exits
+/// after the notification's 10 s timeout or on user interaction, so threads
+/// don't accumulate. Notifications are infrequent enough that per-notification
+/// threads are cheaper than a shared worker that would serialize click handling.
+fn spawn_action_listener(handle: notify_rust::NotificationHandle, flag: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        handle.wait_for_action(|action| {
+            if action == "default" {
+                flag.store(true, Ordering::Release);
             }
         });
-        tx
     });
+}
 
 fn show(
     title: &str,
@@ -137,7 +132,7 @@ fn show(
     match n.show() {
         Ok(handle) => {
             if let Some(flag) = raise_flag {
-                let _ = ACTION_SENDER.try_send((handle, flag.clone()));
+                spawn_action_listener(handle, flag.clone());
             }
         }
         Err(e) => eprintln!("Failed to show notification: {}", e),

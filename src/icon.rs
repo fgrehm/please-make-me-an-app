@@ -277,17 +277,24 @@ fn resolve_url(href: &str, page_url: &str) -> String {
     if href.starts_with('/') {
         format!("{}{}", origin, href)
     } else {
+        // Strip query/fragment before computing the base directory, so
+        // "https://example.com?x=1" + "manifest.json" doesn't produce
+        // "https://example.com?x=1/manifest.json".
+        let clean_url = page_url
+            .find(['?', '#'])
+            .map(|i| &page_url[..i])
+            .unwrap_or(page_url);
         // Find the last '/' after the scheme to use as the base directory.
         // For "https://example.com/dir/page" -> "https://example.com/dir/"
         // For "https://example.com" (no path) -> "https://example.com/"
-        let after_scheme = page_url
+        let after_scheme = clean_url
             .find("://")
             .map(|i| i + 3)
             .unwrap_or(0);
-        let base = page_url[after_scheme..]
+        let base = clean_url[after_scheme..]
             .rfind('/')
-            .map(|i| &page_url[..after_scheme + i + 1])
-            .unwrap_or_else(|| page_url);
+            .map(|i| &clean_url[..after_scheme + i + 1])
+            .unwrap_or(clean_url);
         if base.ends_with('/') {
             format!("{}{}", base, href)
         } else {
@@ -519,6 +526,23 @@ mod tests {
         // "https://example.com" + "manifest.json" should not land in the scheme
         assert_eq!(
             resolve_url("manifest.json", "https://example.com"),
+            "https://example.com/manifest.json"
+        );
+    }
+
+    #[test]
+    fn resolve_url_relative_strips_query_from_base() {
+        // "https://example.com?x=1" + "manifest.json" must not leak query into result
+        assert_eq!(
+            resolve_url("manifest.json", "https://example.com?x=1"),
+            "https://example.com/manifest.json"
+        );
+    }
+
+    #[test]
+    fn resolve_url_relative_strips_fragment_from_base() {
+        assert_eq!(
+            resolve_url("manifest.json", "https://example.com#section"),
             "https://example.com/manifest.json"
         );
     }
