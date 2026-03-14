@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.2.0
+
+Real-world usage improvements across all core features.
+
+### New features
+
+- **Download file chooser**: GTK save dialog on download; cancelling the dialog cancels the download
+- **Raise existing window**: second `open` invocation raises the running window via Unix socket IPC instead of erroring
+- **Keyboard shortcuts**: Ctrl+Q quits, Ctrl+W hides to tray (or quits if tray is disabled)
+- **beforeunload support**: synthetic beforeunload event dispatch with native GTK confirmation dialog
+- **Reinstall by name**: `install <name>` looks up the existing config from the XDG config dir
+- **Better icons**: icon fetcher now checks web app manifest and apple-touch-icon for larger images (192-512px); all icons normalized to PNG
+- **Raise on notification click**: clicking a system notification raises the app window
+- **Wayland app-id**: `g_set_prgname` sets the correct app-id for alt-tab icon matching in webview mode
+- **Browser backend WM_CLASS**: `StartupWMClass` in `.desktop` files now matches the Chromium-predicted Wayland app_id
+
+### Fixes
+
+- Tray window restore on Wayland: call `gtk_window_present()` and force resize to recover compositor state
+- Tray quit no longer hangs: `process::exit(0)` bypasses blocked notification threads
+- All popups denied and opened in system browser (prevents unmanaged GTK windows)
+- flock error handling: `EWOULDBLOCK` (already running) distinguished from real I/O errors
+- Manifest icon URLs resolved against manifest URL, not page URL
+- `--class` arg in browser launch now matches `StartupWMClass`
+- HTML icon parser: `to_ascii_lowercase()` for byte-index slicing (prevents panics on non-ASCII HTML)
+- `chromium_app_name_from_url` strips port, query string, and fragment
+- `create_raise_listener` failures logged under `--debug` instead of silently dropped
+
+### Other
+
+- Local builds now show `git describe` version (e.g. `0.1.3-15-gabcdef`) instead of `0.1.0`
+- Added `examples/notion.yaml` (tested, works on WebKitGTK)
+
 ## v0.1.1
 
 - Add install instructions to README
