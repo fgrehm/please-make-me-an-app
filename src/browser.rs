@@ -44,7 +44,7 @@ pub fn find_binary(backend: &Backend) -> Result<PathBuf> {
 }
 
 /// Build the command-line arguments for launching a Chromium-based browser in app mode.
-pub fn build_args(config: &AppConfig, data_dir: &Path, _profile_name: &str, url: &str) -> Vec<String> {
+pub fn build_args(config: &AppConfig, data_dir: &Path, url: &str) -> Vec<String> {
     // Use the Chromium-predicted WM class so StartupWMClass in the .desktop file
     // matches --class on X11. On Wayland, Chromium ignores --class entirely, but
     // passing the predicted value here keeps X11 consistent with the desktop file.
@@ -69,10 +69,10 @@ pub fn build_args(config: &AppConfig, data_dir: &Path, _profile_name: &str, url:
 }
 
 /// Launch a Chromium-based browser in app mode and wait for it to exit.
-pub fn run(config: &AppConfig, profile_name: &str, data_dir: &Path, url: &str) -> Result<()> {
+pub fn run(config: &AppConfig, data_dir: &Path, url: &str) -> Result<()> {
     let binary = find_binary(&config.backend)?;
     let browser_data_dir = data_dir.join("chromium-data");
-    let args = build_args(config, &browser_data_dir, profile_name, url);
+    let args = build_args(config, &browser_data_dir, url);
 
     let status = std::process::Command::new(&binary)
         .args(&args)
@@ -99,9 +99,18 @@ fn chromium_app_name_from_url(url: &str) -> String {
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url);
 
-    let (host_port, path) = match without_scheme.find('/') {
-        Some(i) => (&without_scheme[..i], &without_scheme[i..]),
-        None => (without_scheme, "/"),
+    // Split authority from path at the first '/', '?', or '#'.
+    // URLs like "example.com?x=1" (no explicit path slash) must not leak
+    // query/fragment into host_port.
+    let authority_end = without_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(without_scheme.len());
+    let host_port = &without_scheme[..authority_end];
+    let remainder = &without_scheme[authority_end..];
+    let path = if remainder.is_empty() || !remainder.starts_with('/') {
+        "/"
+    } else {
+        remainder
     };
 
     // Strip port from host: "example.com:8080" -> "example.com".
@@ -206,7 +215,7 @@ mod tests {
     fn build_args_basic() {
         let mut config = config::test_config();
         config.backend = Backend::Brave;
-        let args = build_args(&config, Path::new("/data/test-app/default"), "default", "https://example.com");
+        let args = build_args(&config, Path::new("/data/test-app/default"), "https://example.com");
         assert!(args.contains(&"--app=https://example.com".to_string()));
         assert!(args.contains(&"--user-data-dir=/data/test-app/default".to_string()));
         // --class uses the Chromium-predicted WM class, not pmma-*
@@ -224,7 +233,7 @@ mod tests {
             config::ProfileConfig { name: "work".to_string() },
             config::ProfileConfig { name: "personal".to_string() },
         ];
-        let args = build_args(&config, Path::new("/data/test-app/work"), "work", "https://example.com");
+        let args = build_args(&config, Path::new("/data/test-app/work"), "https://example.com");
         // Profile name does not affect --class; the WM class comes from the URL
         assert!(args.contains(&"--class=google-chrome-example.com__-Default".to_string()));
     }
@@ -282,6 +291,24 @@ mod tests {
         assert_eq!(
             chromium_app_name_from_url("https://example.com/path#section"),
             "example.com__path"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_query_without_path() {
+        // URL like "https://example.com?x=1" (no path slash before query)
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com?x=1"),
+            "example.com__"
+        );
+    }
+
+    #[test]
+    fn chromium_app_name_fragment_without_path() {
+        // URL like "https://example.com#frag" (no path slash before fragment)
+        assert_eq!(
+            chromium_app_name_from_url("https://example.com#frag"),
+            "example.com__"
         );
     }
 

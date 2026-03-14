@@ -40,7 +40,9 @@ pub fn fetch(config: &AppConfig) -> Result<Option<PathBuf>> {
 
 /// Save icon bytes as PNG for desktop environment compatibility.
 /// ICO, WebP, and other formats are not reliably supported by all
-/// desktop environments for .desktop file icons.
+/// desktop environments for .desktop file icons. If the image cannot
+/// be decoded (e.g. SVG), the original bytes are saved with their
+/// source extension as a best-effort fallback.
 fn save_as_png(dir: &Path, name: &str, bytes: &[u8], source_url: &str) -> Result<PathBuf> {
     let icon_path = dir.join(format!("{}.png", name));
 
@@ -161,7 +163,9 @@ fn fetch_largest_manifest_icon(manifest_url: &str) -> Option<String> {
     let mut best: Option<(u32, String)> = None;
 
     for icon in icons {
-        let src = icon.get("src")?.as_str()?;
+        let Some(src) = icon.get("src").and_then(|s| s.as_str()) else {
+            continue;
+        };
         let size = icon
             .get("sizes")
             .and_then(|s| s.as_str())

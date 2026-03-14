@@ -29,9 +29,9 @@ pub fn run(
     #[cfg(target_os = "linux")]
     gtk::glib::set_prgname(Some(&app_id));
 
-    // Bind the raise socket immediately after acquiring the flock (in main) so that
-    // a second instance signalling raise does not miss the socket during window/webview
-    // setup. The thread that reads from the socket is spawned below, after the flags.
+    // Bind the raise socket early (before window/webview setup) so that a second
+    // instance signalling raise does not miss the socket. The flock is already held
+    // by the caller (main). The thread that reads from the socket is spawned below.
     let raise_listener = profile::create_raise_listener(data_dir);
 
     let event_loop = EventLoop::new();
