@@ -80,7 +80,15 @@ fn write_desktop_entry(
     let log_file = format!("/tmp/pmma-{}.log", log_suffix);
     let wm_class = if config.backend.is_browser() {
         // Chromium ignores --class in --app mode on Wayland and generates
-        // its own app_id from the URL. We must match it.
+        // its own app_id from the URL. We predict that value here so
+        // StartupWMClass matches for normal (non-URL-scheme) launches.
+        //
+        // When url_schemes are registered, the runtime URL passed via --url
+        // can differ from config.url (different path or query), so Chromium's
+        // actual app_id may not match StartupWMClass. There is no fully stable
+        // value to use here: origin-only breaks normal launches, and full-URL
+        // breaks scheme-activated launches. This is documented in
+        // docs/known-limitations.md under "Browser Mode Limitations".
         browser::chromium_wm_class(&config.backend, &config.url)
     } else {
         match profile {

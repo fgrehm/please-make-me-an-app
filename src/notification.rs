@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, OnceLock};
 
 /// Build the JavaScript that intercepts the Web Notification API and forwards
 /// notifications to the host via IPC.
@@ -94,6 +95,30 @@ pub fn handle_ipc(
     show(title, body, app_name, icon_path, raise_flag);
 }
 
+/// Returns a sender to the single background thread that calls `wait_for_action`.
+///
+/// A single worker processes action callbacks sequentially. Because each
+/// notification has a 10 s timeout, the worst-case delay per queued item is
+/// bounded. This avoids spawning an unbounded number of blocked threads when
+/// many notifications arrive in quick succession.
+fn action_sender() -> &'static Sender<(notify_rust::NotificationHandle, Arc<AtomicBool>)> {
+    static SENDER: OnceLock<Sender<(notify_rust::NotificationHandle, Arc<AtomicBool>)>> =
+        OnceLock::new();
+    SENDER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<(notify_rust::NotificationHandle, Arc<AtomicBool>)>();
+        std::thread::spawn(move || {
+            for (handle, flag) in rx {
+                handle.wait_for_action(|action| {
+                    if action == "default" {
+                        flag.store(true, Ordering::Release);
+                    }
+                });
+            }
+        });
+        tx
+    })
+}
+
 fn show(
     title: &str,
     body: &str,
@@ -115,19 +140,7 @@ fn show(
     match n.show() {
         Ok(handle) => {
             if let Some(flag) = raise_flag {
-                let flag = flag.clone();
-                // Spawn a thread per notification to wait for a click action.
-                // wait_for_action() blocks; it cannot be made async without
-                // a different notify-rust API. The 10s timeout bounds thread
-                // lifetime. process::exit(0) in the tray quit path ensures
-                // these threads don't delay exit.
-                std::thread::spawn(move || {
-                    handle.wait_for_action(|action| {
-                        if action == "default" {
-                            flag.store(true, Ordering::Release);
-                        }
-                    });
-                });
+                let _ = action_sender().send((handle, flag.clone()));
             }
         }
         Err(e) => eprintln!("Failed to show notification: {}", e),

@@ -121,6 +121,8 @@ please-make-me-an-app predicts the `app_id` that Chromium will generate and sets
 
 Because the `app_id` is derived from the URL (not the profile name), all profiles of the same app share the same `StartupWMClass`. This means per-profile `.desktop` entries cannot be distinguished by WM_CLASS on X11 when multiple profiles are open concurrently.
 
+When `url_schemes` are registered, the URL activated at runtime (via `--url "$1"`) can have a different path or query string than `config.url`. Chromium generates its `app_id` from the runtime `--app=` URL, so the actual `app_id` may differ from `StartupWMClass` (which is derived from `config.url` at install time). There is no fully stable value to use: origin-only would break normal (non-scheme) launches, and full-URL breaks scheme-activated launches.
+
 **Status:** Upstream Chromium issue. No reliable workaround from outside the browser process.
 
 ### What works in browser mode
