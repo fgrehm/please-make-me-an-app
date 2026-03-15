@@ -135,7 +135,7 @@ When `url_schemes` are registered, the URL activated at runtime (via `--url "$1"
 
 ### What does not apply in browser mode
 
-- **CSS/JS injection** (`inject.css`, `inject.js`, `inject.css_file`, `inject.js_file`): Supported via an auto-generated Chrome extension. When any inject field is set, please-make-me-an-app writes a minimal unpacked Manifest V3 extension to `<profile-data-dir>/browser-extension/` and passes `--load-extension=<path>` to the browser at launch. The extension runs a content script at `document_start` matching the app's origin (e.g. `https://mail.google.com/*`).
+- **CSS/JS injection** (`inject.css`, `inject.js`, `inject.css_file`, `inject.js_file`): Supported via an auto-generated Chrome extension. When any inject field is set, please-make-me-an-app writes a minimal unpacked Manifest V3 extension to `<profile-data-dir>/browser-extension/` and passes `--enable-extensions --load-extension=<path>` to the browser at launch. `--enable-extensions` is required because `--app` mode disables extensions by default in Chrome/Chromium; Brave enables extensions by default but accepts the flag without issue. The extension runs a content script at `document_start` matching the app's origin (e.g. `https://mail.google.com/*`).
 
   **Nag bubble:** Chromium and Brave load unpacked extensions silently. Chrome (Google's build) shows a persistent "Developer mode extensions are enabled" banner on every launch; there is no reliable way to suppress it from outside the browser process.
 

@@ -77,6 +77,9 @@ pub fn run(config: &AppConfig, data_dir: &Path, url: &str, config_dir: &Path) ->
     let mut args = build_args(config, &browser_data_dir, url);
 
     if let Some(ext_dir) = generate_extension(config, config_dir, data_dir)? {
+        // --enable-extensions is required in --app mode on Chrome/Chromium; Brave
+        // enables extensions by default but accepts the flag without issue.
+        args.push("--enable-extensions".to_string());
         args.push(format!("--load-extension={}", ext_dir.display()));
     }
 
