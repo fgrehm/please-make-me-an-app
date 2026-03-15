@@ -1,0 +1,19 @@
+name: gmail-brave
+url: https://mail.google.com
+backend: brave
+window:
+  title: Gmail (Brave)
+  width: 1280
+  height: 900
+inject:
+  css: |
+    /* Inject test: green bottom border on the toolbar to confirm CSS is active */
+    #gbwa, .gb_2d.gb_Oc {
+      border-bottom: 3px solid #22c55e !important;
+    }
+  js: |
+    // Inject test: confirm JS is active (check in DevTools console)
+    console.log('[pmma] browser extension injection active');
+    window.__pmma_injected = true;
+
+# NOTE: for a quick injection smoke test without auth, see inject-test-brave.yaml

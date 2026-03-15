@@ -1,0 +1,18 @@
+name: workspace
+url: https://mail.google.com
+# Chromium backend: full Google Meet support (WebRTC, camera, mic permissions).
+# Tradeoffs vs workspace-light.yaml:
+#   - Tray, notification forwarding, and adblock unavailable
+#   - CSS/JS injection available via browser extension (add inject.css/inject.js)
+#   - Links in emails/calendar open in Chromium with this custom profile, NOT in
+#     your main system browser (Chromium handles new windows internally)
+# Use workspace-light.yaml unless you need Meet in-app.
+backend: chromium
+window:
+  title: Google Workspace
+  width: 1280
+  height: 900
+  remember_position: true
+profiles:
+  - name: personal
+  - name: work

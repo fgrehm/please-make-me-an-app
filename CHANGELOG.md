@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Native KDE file dialogs**: set `GTK_USE_PORTAL=1` so file chooser dialogs use xdg-desktop-portal, showing KDE's native Dolphin-based picker on Plasma instead of GTK's
 - **Download file chooser**: GTK save dialog on download; cancelling the dialog cancels the download
 - **Raise existing window**: second `open` invocation raises the running window via Unix socket IPC instead of erroring
-- **Keyboard shortcuts**: Ctrl+Q quits, Ctrl+W hides to tray (or quits if tray is disabled)
+- **Keyboard shortcuts**: Ctrl+Q quits, Ctrl+W hides to tray (or quits if tray is disabled); Alt+Left/Right for back/forward; Ctrl+R reloads; Ctrl+Shift+R hard-reloads (cache bypass); Ctrl+L shows current URL in a copyable dialog
+- **`excluded_domains`**: list of domains that always open in the system browser, even if they match `allowed_domains`; useful for e.g. excluding `meet.google.com` from a workspace app
+- **Browser extension injection**: when `inject` fields are set with a browser backend (Brave/Chrome/Chromium), an unpacked MV3 Chrome extension is auto-generated and loaded via `--load-extension`; supports `inject.css`, `inject.js`, `inject.css_file`, `inject.js_file`; Brave and Chromium are silent, Chrome shows a developer-mode notice on every launch
+- **Fullscreen polyfill**: `requestFullscreen()`/`exitFullscreen()` and all webkit-prefixed variants are intercepted and mapped to native window fullscreen; fixes fullscreen buttons in video players, YouTube, etc.
 - **beforeunload support**: synthetic beforeunload event dispatch with native GTK confirmation dialog
 - **Reinstall by name**: `install <name>` looks up the existing config from the XDG config dir
 - **Better icons**: icon fetcher now checks web app manifest and apple-touch-icon for larger images (192-512px); all icons normalized to PNG

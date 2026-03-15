@@ -274,6 +274,7 @@ fn main() -> Result<()> {
                 eprintln!("[debug] data_dir: {}", data_dir.display());
             }
 
+            let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
             if app_config.backend.is_browser() {
                 browser::warn_ignored_options(&app_config);
                 if debug {
@@ -282,9 +283,8 @@ fn main() -> Result<()> {
                         Err(e) => eprintln!("[debug] browser binary: {}", e),
                     }
                 }
-                browser::run(&app_config, &data_dir, &effective_url)?;
+                browser::run(&app_config, &data_dir, &effective_url, config_dir)?;
             } else {
-                let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
                 if debug {
                     eprintln!(
                         "[debug] user_agent: {}",

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
-use tao::window::WindowBuilder;
+use tao::window::{Fullscreen, WindowBuilder};
 use wry::{NewWindowResponse, WebContext, WebViewBuilder};
 
 pub fn run(
@@ -136,6 +136,11 @@ pub fn run(
     // Keyboard shortcuts (Ctrl+W to close window, Ctrl+Q to quit)
     builder = builder.with_initialization_script(keyboard_shortcut_script());
 
+    // Fullscreen API polyfill: maps requestFullscreen/exitFullscreen to native
+    // window fullscreen via IPC. Without this, video fullscreen buttons are no-ops
+    // because WebKitGTK's built-in fullscreen implementation is not wired up.
+    builder = builder.with_initialization_script(fullscreen_polyfill_script());
+
     // Flags shared between the IPC handler and the event loop.
     // The IPC handler sets them; the event loop reads and resets them.
     let raise_requested = Arc::new(AtomicBool::new(false));
@@ -143,6 +148,13 @@ pub fn run(
     let quit_requested = Arc::new(AtomicBool::new(false));
     let close_confirmed = Arc::new(AtomicBool::new(false));
     let close_blocked = Arc::new(AtomicBool::new(false));
+    let go_back_requested = Arc::new(AtomicBool::new(false));
+    let go_forward_requested = Arc::new(AtomicBool::new(false));
+    let reload_requested = Arc::new(AtomicBool::new(false));
+    let reload_hard_requested = Arc::new(AtomicBool::new(false));
+    let show_url_requested = Arc::new(AtomicBool::new(false));
+    let enter_fullscreen_requested = Arc::new(AtomicBool::new(false));
+    let exit_fullscreen_requested = Arc::new(AtomicBool::new(false));
 
     {
         // Cloned into the IPC closure which must be 'static (outlives this function)
@@ -154,6 +166,13 @@ pub fn run(
         let ipc_quit = quit_requested.clone();
         let ipc_confirmed = close_confirmed.clone();
         let ipc_blocked = close_blocked.clone();
+        let ipc_go_back = go_back_requested.clone();
+        let ipc_go_forward = go_forward_requested.clone();
+        let ipc_reload = reload_requested.clone();
+        let ipc_reload_hard = reload_hard_requested.clone();
+        let ipc_show_url = show_url_requested.clone();
+        let ipc_enter_fs = enter_fullscreen_requested.clone();
+        let ipc_exit_fs = exit_fullscreen_requested.clone();
         let ipc_token_prefix = format!("{}:", ipc_token);
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
@@ -166,6 +185,13 @@ pub fn run(
                     "pmma-kbd:quit-app" => ipc_quit.store(true, Ordering::Release),
                     "pmma-close:confirmed" => ipc_confirmed.store(true, Ordering::Release),
                     "pmma-close:blocked" => ipc_blocked.store(true, Ordering::Release),
+                    "pmma-kbd:go-back" => ipc_go_back.store(true, Ordering::Release),
+                    "pmma-kbd:go-forward" => ipc_go_forward.store(true, Ordering::Release),
+                    "pmma-kbd:reload" => ipc_reload.store(true, Ordering::Release),
+                    "pmma-kbd:reload-hard" => ipc_reload_hard.store(true, Ordering::Release),
+                    "pmma-kbd:show-url" => ipc_show_url.store(true, Ordering::Release),
+                    "pmma-fullscreen:enter" => ipc_enter_fs.store(true, Ordering::Release),
+                    "pmma-fullscreen:exit" => ipc_exit_fs.store(true, Ordering::Release),
                     _ => {}
                 }
             } else if ipc_notifications {
@@ -181,10 +207,11 @@ pub fn run(
 
     let app_domain = extract_domain(&config.url).unwrap_or("").to_string();
     let allowed = config.allowed_domains.clone();
+    let excluded = config.excluded_domains.clone();
     let nav_debug = debug;
     let nav_open_external = config.open_external_links;
     builder = builder.with_navigation_handler(move |url| {
-        if should_open_externally(&url, &app_domain, &allowed) {
+        if should_open_externally(&url, &app_domain, &allowed, &excluded) {
             if nav_debug {
                 eprintln!("[debug] nav blocked (external): {}", url);
             }
@@ -280,6 +307,7 @@ pub fn run(
     }
 
     let minimize_to_tray = config.tray.enabled && config.tray.minimize_to_tray;
+    let mut is_fullscreen = false;
     let remember_position = config.window.remember_position;
     let data_dir = data_dir.to_path_buf();
     let mut window_visible = true;
@@ -336,6 +364,49 @@ pub fn run(
                 }
             }
             return;
+        }
+
+        if go_back_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("window.history.back()");
+        }
+
+        if go_forward_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("window.history.forward()");
+        }
+
+        if reload_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.reload();
+        }
+
+        // Ctrl+Shift+R: hard reload bypassing cache. WebKit honors the
+        // deprecated `true` argument to location.reload(); wry has no
+        // dedicated API for this.
+        if reload_hard_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("location.reload(true)");
+        }
+
+        if show_url_requested.swap(false, Ordering::Acquire) {
+            if let Ok(url) = webview.url() {
+                show_url_dialog(&window, &url);
+            }
+        }
+
+        if enter_fullscreen_requested.swap(false, Ordering::Acquire) {
+            is_fullscreen = true;
+            window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+
+        if exit_fullscreen_requested.swap(false, Ordering::Acquire) {
+            is_fullscreen = false;
+            window.set_fullscreen(None);
+        }
+
+        // Detect external fullscreen exits (compositor shortcut, WM, etc.).
+        // If we think we're fullscreen but the window disagrees, reset JS state.
+        if is_fullscreen && window.fullscreen().is_none() {
+            is_fullscreen = false;
+            let _ = webview
+                .evaluate_script("if(window.__pmma_fs_reset)window.__pmma_fs_reset()");
         }
 
         // Handle tray events
@@ -479,7 +550,12 @@ fn build_navigator_override_script(nav: &crate::config::NavigatorConfig) -> Opti
 }
 
 /// Check if a URL should be opened in the system browser instead of the webview.
-fn should_open_externally(url: &str, app_domain: &str, allowed_domains: &[String]) -> bool {
+fn should_open_externally(
+    url: &str,
+    app_domain: &str,
+    allowed_domains: &[String],
+    excluded_domains: &[String],
+) -> bool {
     // mailto: and tel: always go to the system handler
     if url.starts_with("mailto:") || url.starts_with("tel:") {
         return true;
@@ -495,10 +571,13 @@ fn should_open_externally(url: &str, app_domain: &str, allowed_domains: &[String
         None => return false,
     };
 
+    // Excluded domains always open externally, even if they match allowed_domains
+    if excluded_domains.iter().any(|d| domain_matches(domain, d)) {
+        return true;
+    }
+
     !domain_matches(domain, app_domain)
-        && !allowed_domains
-            .iter()
-            .any(|d| domain_matches(domain, d))
+        && !allowed_domains.iter().any(|d| domain_matches(domain, d))
 }
 
 fn domain_matches(domain: &str, pattern: &str) -> bool {
@@ -564,8 +643,8 @@ fn percent_decode(s: &str) -> String {
 /// phase ensures we intercept before the web app's own handlers.
 fn keyboard_shortcut_script() -> &'static str {
     r#"document.addEventListener('keydown', function(e) {
+    var t = window.__pmma_token || '';
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        var t = window.__pmma_token || '';
         if (e.key === 'w' || e.key === 'W') {
             e.preventDefault();
             e.stopPropagation();
@@ -574,9 +653,105 @@ fn keyboard_shortcut_script() -> &'static str {
             e.preventDefault();
             e.stopPropagation();
             window.ipc.postMessage(t + ':pmma-kbd:quit-app');
+        } else if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:reload');
+        } else if (e.key === 'l' || e.key === 'L') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:show-url');
+        }
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+        if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:reload-hard');
+        }
+    } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:go-back');
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:go-forward');
         }
     }
 }, true);"#
+}
+
+/// JS initialization script that polyfills the Fullscreen API.
+///
+/// WebKitGTK has its own fullscreen implementation but wry does not wire it up
+/// to the host window, so `element.requestFullscreen()` is a no-op. This
+/// polyfill intercepts all standard and webkit-prefixed fullscreen calls,
+/// forwards them to the host via IPC, and dispatches `fullscreenchange` events
+/// so web apps (video players, games, etc.) behave correctly.
+fn fullscreen_polyfill_script() -> &'static str {
+    r#"(function() {
+    if (window.__pmma_fullscreen__) return;
+    window.__pmma_fullscreen__ = true;
+
+    var fsElement = null;
+
+    function dispatch(el) {
+        var ev = new Event('fullscreenchange', { bubbles: true });
+        document.dispatchEvent(ev);
+        if (el) el.dispatchEvent(ev);
+        var wk = new Event('webkitfullscreenchange', { bubbles: true });
+        document.dispatchEvent(wk);
+        if (el) el.dispatchEvent(wk);
+    }
+
+    function enter(el) {
+        fsElement = el;
+        var t = window.__pmma_token || '';
+        window.ipc.postMessage(t + ':pmma-fullscreen:enter');
+        dispatch(el);
+        return Promise.resolve();
+    }
+
+    function exit() {
+        var prev = fsElement;
+        fsElement = null;
+        var t = window.__pmma_token || '';
+        window.ipc.postMessage(t + ':pmma-fullscreen:exit');
+        dispatch(prev);
+        return Promise.resolve();
+    }
+
+    Object.defineProperty(document, 'fullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'fullscreenElement', { get: function() { return fsElement; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenElement', { get: function() { return fsElement; }, configurable: true });
+    Object.defineProperty(document, 'webkitCurrentFullScreenElement', { get: function() { return fsElement; }, configurable: true });
+
+    Element.prototype.requestFullscreen = function() { return enter(this); };
+    Element.prototype.webkitRequestFullscreen = function() { return enter(this); };
+    Element.prototype.webkitRequestFullScreen = function() { return enter(this); };
+
+    document.exitFullscreen = exit;
+    document.webkitExitFullscreen = exit;
+    document.webkitCancelFullScreen = exit;
+
+    // Escape exits fullscreen (mirrors native browser behaviour)
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && fsElement) {
+            e.preventDefault();
+            exit();
+        }
+    }, true);
+
+    // Called by the host when the window exits fullscreen externally
+    // (compositor shortcut, WM, etc.) so JS state stays in sync.
+    window.__pmma_fs_reset = function() {
+        var prev = fsElement;
+        fsElement = null;
+        dispatch(prev);
+    };
+})();"#
 }
 
 /// JS evaluated on demand to check if the page's beforeunload handler would
@@ -671,6 +846,39 @@ fn show_close_confirmation(window: &tao::window::Window) -> bool {
     }
 }
 
+/// Show a modal dialog with the current page URL pre-selected so the user
+/// can copy it with Ctrl+C. Triggered by Ctrl+L.
+fn show_url_dialog(window: &tao::window::Window, url: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        use tao::platform::unix::WindowExtUnix;
+        let gtk_win = window.gtk_window();
+        let parent: &gtk::Window = gtk_win.upcast_ref();
+        let dialog = gtk::Dialog::with_buttons(
+            Some("Current URL"),
+            Some(parent),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            &[("Close", gtk::ResponseType::Close)],
+        );
+        let content = dialog.content_area();
+        let entry = gtk::Entry::new();
+        entry.set_text(url);
+        entry.set_editable(false);
+        entry.set_width_chars(60);
+        content.pack_start(&entry, true, true, 8);
+        content.show_all();
+        entry.grab_focus();
+        entry.select_region(0, -1);
+        dialog.run();
+        dialog.close();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, url);
+    }
+}
+
 fn open_in_browser(url: &str) {
     #[cfg(target_os = "linux")]
     {
@@ -704,6 +912,7 @@ mod tests {
         assert!(!should_open_externally(
             "https://mail.google.com/inbox",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -713,6 +922,7 @@ mod tests {
         assert!(!should_open_externally(
             "https://sub.mail.google.com/page",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -722,6 +932,7 @@ mod tests {
         assert!(should_open_externally(
             "https://example.com/link",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -732,7 +943,8 @@ mod tests {
         assert!(!should_open_externally(
             "https://accounts.google.com/login",
             "mail.google.com",
-            &allowed
+            &allowed,
+            &[]
         ));
     }
 
@@ -742,7 +954,44 @@ mod tests {
         assert!(!should_open_externally(
             "https://accounts.google.com/login",
             "mail.google.com",
-            &allowed
+            &allowed,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn excluded_domain_opens_externally_even_if_allowed() {
+        let allowed = vec!["google.com".to_string()];
+        let excluded = vec!["meet.google.com".to_string()];
+        assert!(should_open_externally(
+            "https://meet.google.com/abc-def",
+            "mail.google.com",
+            &allowed,
+            &excluded
+        ));
+    }
+
+    #[test]
+    fn excluded_parent_domain_matches_subdomains() {
+        let excluded = vec!["google.com".to_string()];
+        assert!(should_open_externally(
+            "https://meet.google.com/abc-def",
+            "mail.google.com",
+            &[],
+            &excluded
+        ));
+    }
+
+    #[test]
+    fn non_excluded_allowed_domain_stays_in_app() {
+        let allowed = vec!["google.com".to_string()];
+        let excluded = vec!["meet.google.com".to_string()];
+        // calendar.google.com is allowed but not excluded, so stays in app
+        assert!(!should_open_externally(
+            "https://calendar.google.com/calendar",
+            "mail.google.com",
+            &allowed,
+            &excluded
         ));
     }
 
@@ -751,6 +1000,7 @@ mod tests {
         assert!(should_open_externally(
             "mailto:user@example.com",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -760,6 +1010,7 @@ mod tests {
         assert!(should_open_externally(
             "tel:+1234567890",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -769,6 +1020,7 @@ mod tests {
         assert!(!should_open_externally(
             "blob:https://mail.google.com/abc123",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -778,6 +1030,7 @@ mod tests {
         assert!(!should_open_externally(
             "about:blank",
             "mail.google.com",
+            &[],
             &[]
         ));
     }

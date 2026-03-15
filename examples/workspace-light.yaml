@@ -1,0 +1,25 @@
+name: workspace-light
+url: https://mail.google.com
+# Webview backend: tray, notifications, adblock, and CSS/JS injection all work.
+# Google Meet links open in the system browser (excluded_domains below) since
+# WebKitGTK cannot grant camera/microphone permissions.
+# Use workspace.yaml (backend: chromium) if you need Meet in-app.
+window:
+  title: Google Workspace
+  width: 1280
+  height: 900
+  remember_position: true
+profiles:
+  - name: personal
+  - name: work
+notifications: true
+tray:
+  enabled: true
+  minimize_to_tray: true
+allowed_domains:
+  - google.com
+  - gstatic.com
+  - googleapis.com
+  - googleusercontent.com
+excluded_domains:
+  - meet.google.com
