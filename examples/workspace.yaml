@@ -1,8 +1,11 @@
 name: workspace
 url: https://mail.google.com
 # Chromium backend: full Google Meet support (WebRTC, camera, mic permissions).
-# Tradeoff: tray, notification forwarding, CSS/JS injection, and adblock are
-# unavailable in browser mode. Use workspace-light.yaml for those features.
+# Tradeoffs vs workspace-light.yaml:
+#   - Tray, notification forwarding, CSS/JS injection, and adblock unavailable
+#   - Links in emails/calendar open in Brave with this custom profile, NOT in
+#     your main system browser (Chromium handles new windows internally)
+# Use workspace-light.yaml unless you need Meet in-app.
 backend: chromium
 window:
   title: Google Workspace

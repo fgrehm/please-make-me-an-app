@@ -307,6 +307,7 @@ pub fn run(
     }
 
     let minimize_to_tray = config.tray.enabled && config.tray.minimize_to_tray;
+    let mut is_fullscreen = false;
     let remember_position = config.window.remember_position;
     let data_dir = data_dir.to_path_buf();
     let mut window_visible = true;
@@ -391,11 +392,21 @@ pub fn run(
         }
 
         if enter_fullscreen_requested.swap(false, Ordering::Acquire) {
+            is_fullscreen = true;
             window.set_fullscreen(Some(Fullscreen::Borderless(None)));
         }
 
         if exit_fullscreen_requested.swap(false, Ordering::Acquire) {
+            is_fullscreen = false;
             window.set_fullscreen(None);
+        }
+
+        // Detect external fullscreen exits (compositor shortcut, WM, etc.).
+        // If we think we're fullscreen but the window disagrees, reset JS state.
+        if is_fullscreen && window.fullscreen().is_none() {
+            is_fullscreen = false;
+            let _ = webview
+                .evaluate_script("if(window.__pmma_fs_reset)window.__pmma_fs_reset()");
         }
 
         // Handle tray events
@@ -732,6 +743,14 @@ fn fullscreen_polyfill_script() -> &'static str {
             exit();
         }
     }, true);
+
+    // Called by the host when the window exits fullscreen externally
+    // (compositor shortcut, WM, etc.) so JS state stays in sync.
+    window.__pmma_fs_reset = function() {
+        var prev = fsElement;
+        fsElement = null;
+        dispatch(prev);
+    };
 })();"#
 }
 
