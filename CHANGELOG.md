@@ -6,6 +6,8 @@ Real-world usage improvements across all core features.
 
 ### New features
 
+- **Native KDE file dialogs**: set `GTK_USE_PORTAL=1` so file chooser dialogs use xdg-desktop-portal, showing KDE's native Dolphin-based picker on Plasma instead of GTK's
+
 - **Download file chooser**: GTK save dialog on download; cancelling the dialog cancels the download
 - **Raise existing window**: second `open` invocation raises the running window via Unix socket IPC instead of erroring
 - **Keyboard shortcuts**: Ctrl+Q quits, Ctrl+W hides to tray (or quits if tray is disabled)
