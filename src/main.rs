@@ -239,6 +239,12 @@ fn resolve_url<'a>(base_url: &'a str, url_override: Option<&str>) -> std::borrow
 }
 
 fn main() -> Result<()> {
+    // Use xdg-desktop-portal for file dialogs when available. On KDE Plasma
+    // this shows the native Dolphin-based file picker instead of GTK's.
+    // Must be set before GTK initializes (EventLoop::new).
+    #[cfg(target_os = "linux")]
+    std::env::set_var("GTK_USE_PORTAL", "1");
+
     let cli = Cli::parse();
 
     match cli.command {
