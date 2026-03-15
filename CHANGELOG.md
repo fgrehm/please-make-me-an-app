@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-15
+
 ### Added
 
 - **Native KDE file dialogs**: set `GTK_USE_PORTAL=1` so file chooser dialogs use xdg-desktop-portal, showing KDE's native Dolphin-based picker on Plasma instead of GTK's
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- beforeunload dialog no longer fires on every close when no `beforeunload` listener is registered on the page
 - Tray window restore on Wayland: call `gtk_window_present()` and force resize to recover compositor state
 - All exit paths use `process::exit(0)` to avoid shutdown delay from notification action listener threads
 - All popups denied and opened in system browser (prevents unmanaged GTK windows)
