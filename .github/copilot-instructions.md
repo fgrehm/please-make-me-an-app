@@ -21,6 +21,8 @@ Rust CLI tool that turns websites into standalone desktop apps using native webv
 - **Per-notification `thread::spawn` for action listeners**: each notification click handler must be active immediately. Threads are bounded by the 10s notification timeout. Shutdown delay is avoided by `process::exit(0)`. A single sequential worker would miss clicks on overlapping notifications.
 - **Image codecs (jpeg/gif/webp)**: real-world favicons are served in these formats. Silent decode failure without them breaks tray/window icons. Justified in `Cargo.toml` comment.
 - **Browser backend WM_CLASS from URL**: Chromium ignores `--class` on Wayland and derives `app_id` from the URL. Per-profile distinction is impossible. Documented in `docs/known-limitations.md`.
+- **Browser extension overwritten on every launch**: `generate_extension()` in `browser.rs` always rewrites the extension directory (`<data_dir>/browser-extension/`) so config changes take effect immediately. No caching or diffing is intentional.
+- **`inject::resolve_content` shared between backends**: the function is `pub(crate)` and used by both the webview path (`inject::build_init_script`) and the browser path (`browser::generate_extension`). Changes to ordering or file-reading logic affect both backends.
 - **IPC token authentication**: host-control IPC messages (quit, close, beforeunload) are prefixed with a per-launch nonce injected as `window.__pmma_token`. Validation happens in the IPC handler.
 
 ## What to ignore
