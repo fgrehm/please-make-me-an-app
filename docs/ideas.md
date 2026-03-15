@@ -4,9 +4,7 @@ Things that could be built but aren't planned for any specific release.
 
 ## Browser mode CSS/JS injection via --load-extension
 
-Auto-generate a minimal unpacked Chrome extension per app (manifest.json + content script) and load it via `--load-extension=<path>`. This would bring injection support to the browser backend.
-
-Caveats: Chrome shows a "Developer mode extensions" nag bubble on every launch. `--app` mode may need `--enable-extensions` explicitly. Brave's built-in custom scriptlets (v1.75+) support injection but only via the GUI.
+**Implemented.** See `docs/known-limitations.md` (Browser Mode Limitations → CSS/JS injection).
 
 ## Devtools toggle
 

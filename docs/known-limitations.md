@@ -135,7 +135,13 @@ When `url_schemes` are registered, the URL activated at runtime (via `--url "$1"
 
 ### What does not apply in browser mode
 
-- **CSS/JS injection** (`inject.css`, `inject.js`, `inject.css_file`, `inject.js_file`): Not supported. Chromium removed the `--user-style-sheet` flag years ago and has no command-line flag for injecting scripts or stylesheets. Extensions like Tampermonkey can fill this gap manually. A future `--load-extension` approach is being considered (see [docs/ideas.md](../docs/ideas.md)).
+- **CSS/JS injection** (`inject.css`, `inject.js`, `inject.css_file`, `inject.js_file`): Supported via an auto-generated Chrome extension. When any inject field is set, please-make-me-an-app writes a minimal unpacked Manifest V3 extension to `<profile-data-dir>/browser-extension/` and passes `--load-extension=<path>` to the browser at launch. The extension runs a content script at `document_start` matching the app's origin (e.g. `https://mail.google.com/*`).
+
+  **Nag bubble:** Chromium and Brave load unpacked extensions silently. Chrome (Google's build) shows a persistent "Developer mode extensions are enabled" banner on every launch; there is no reliable way to suppress it from outside the browser process.
+
+  **Extension reuse:** the extension directory is overwritten on every launch, so changes to `inject.css`/`inject.js` take effect the next time you open the app.
+
+  **Limitations vs webview mode:** content scripts run at `document_start` but cannot inject before the very first network request (unlike wry's `with_initialization_script`). `adblock` and `notifications` config options still do not apply in browser mode.
 - **User agent override** (`user_agent`): Ignored. The browser uses its own user agent string.
 - **Ad blocking** (`adblock`): The JS-level blocker does not apply. Brave has built-in ad blocking. For Chrome/Chromium, install uBlock Origin or another extension.
 - **Notification interception** (`notifications`): The config option is ignored. The browser handles web notifications natively with its own permission model.
