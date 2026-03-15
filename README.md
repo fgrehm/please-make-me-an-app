@@ -10,7 +10,7 @@ please-make-me-an-app open whatsapp.yaml
 
 ## Why
 
-Browser tabs don't cut it when you live in a web app 8 hours a day. You want your own window, your own taskbar icon, and the ability to tweak things. But everything that does this either bundles Chromium (80+ MB per app) or requires a build step to produce a binary.
+Browser tabs don't cut it when a web app is core to your workflow. You want your own window, your own taskbar icon, and the ability to tweak things. But everything that does this either bundles Chromium (80+ MB per app) or requires a build step to produce a binary.
 
 This takes a different approach: write a YAML config, run a command, get a window. Change the config, re-run. Keep your app configs in version control alongside your dotfiles.
 
