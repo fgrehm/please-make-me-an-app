@@ -1,13 +1,15 @@
 # Changelog
 
-## v0.2.0
+All notable changes to this project will be documented in this file.
 
-Real-world usage improvements across all core features.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### New features
+## [Unreleased]
+
+### Added
 
 - **Native KDE file dialogs**: set `GTK_USE_PORTAL=1` so file chooser dialogs use xdg-desktop-portal, showing KDE's native Dolphin-based picker on Plasma instead of GTK's
-
 - **Download file chooser**: GTK save dialog on download; cancelling the dialog cancels the download
 - **Raise existing window**: second `open` invocation raises the running window via Unix socket IPC instead of erroring
 - **Keyboard shortcuts**: Ctrl+Q quits, Ctrl+W hides to tray (or quits if tray is disabled)
@@ -18,7 +20,7 @@ Real-world usage improvements across all core features.
 - **Wayland app-id**: `g_set_prgname` sets the correct app-id for alt-tab icon matching in webview mode
 - **Browser backend WM_CLASS**: `StartupWMClass` in `.desktop` files now matches the Chromium-predicted Wayland app_id
 
-### Fixes
+### Fixed
 
 - Tray window restore on Wayland: call `gtk_window_present()` and force resize to recover compositor state
 - All exit paths use `process::exit(0)` to avoid shutdown delay from notification action listener threads
@@ -35,23 +37,25 @@ Real-world usage improvements across all core features.
 - `save_as_png` falls back to original format on decode failure (e.g. SVG)
 - Download dir uses `directories::UserDirs::download_dir()` instead of manual env var lookup
 
-### Other
+### Changed
 
 - Local builds now show `git describe` version (e.g. `0.1.3-15-gabcdef`) instead of `0.1.0`
 - Added `examples/notion.yaml` (tested, works on WebKitGTK)
 
-## v0.1.1
+## [0.1.1] - 2026-03-12
 
-- Add install instructions to README
-- Add CI workflow (check, test, clippy) on push and PRs
-- Add release workflow with test gate
+### Added
+
+- Install instructions in README
+- CI workflow (check, test, clippy) on push and PRs
+- Release workflow with test gate
 - Cache apt packages in CI for faster builds
 
-## v0.1.0
+## [0.1.0] - 2026-03-12
 
 Initial release.
 
-### Features
+### Added
 
 - Turn any website into a standalone desktop app with a YAML config file
 - Profile isolation (separate cookies, storage, and cache per profile)
