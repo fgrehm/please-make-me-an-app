@@ -128,6 +128,10 @@ pub fn generate_extension(
     let css_files: &[&str] = if css.is_some() { &["content.css"] } else { &[] };
     let js_files: &[&str] = if js.is_some() { &["content.js"] } else { &[] };
 
+    // Remove stale files from a previous config (e.g. JS was removed since last launch).
+    if css.is_none() { let _ = std::fs::remove_file(ext_dir.join("content.css")); }
+    if js.is_none() { let _ = std::fs::remove_file(ext_dir.join("content.js")); }
+
     if let Some(css) = css {
         std::fs::write(ext_dir.join("content.css"), css)
             .context("Failed to write extension content.css")?;
@@ -270,6 +274,13 @@ pub fn warn_ignored_options(config: &AppConfig) {
     if !config.allowed_domains.is_empty() {
         eprintln!(
             "warning: allowed_domains is ignored with backend '{backend}' \
+             (browser handles navigation natively)"
+        );
+    }
+
+    if !config.excluded_domains.is_empty() {
+        eprintln!(
+            "warning: excluded_domains is ignored with backend '{backend}' \
              (browser handles navigation natively)"
         );
     }
