@@ -143,6 +143,11 @@ pub fn run(
     let quit_requested = Arc::new(AtomicBool::new(false));
     let close_confirmed = Arc::new(AtomicBool::new(false));
     let close_blocked = Arc::new(AtomicBool::new(false));
+    let go_back_requested = Arc::new(AtomicBool::new(false));
+    let go_forward_requested = Arc::new(AtomicBool::new(false));
+    let reload_requested = Arc::new(AtomicBool::new(false));
+    let reload_hard_requested = Arc::new(AtomicBool::new(false));
+    let show_url_requested = Arc::new(AtomicBool::new(false));
 
     {
         // Cloned into the IPC closure which must be 'static (outlives this function)
@@ -154,6 +159,11 @@ pub fn run(
         let ipc_quit = quit_requested.clone();
         let ipc_confirmed = close_confirmed.clone();
         let ipc_blocked = close_blocked.clone();
+        let ipc_go_back = go_back_requested.clone();
+        let ipc_go_forward = go_forward_requested.clone();
+        let ipc_reload = reload_requested.clone();
+        let ipc_reload_hard = reload_hard_requested.clone();
+        let ipc_show_url = show_url_requested.clone();
         let ipc_token_prefix = format!("{}:", ipc_token);
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
@@ -166,6 +176,11 @@ pub fn run(
                     "pmma-kbd:quit-app" => ipc_quit.store(true, Ordering::Release),
                     "pmma-close:confirmed" => ipc_confirmed.store(true, Ordering::Release),
                     "pmma-close:blocked" => ipc_blocked.store(true, Ordering::Release),
+                    "pmma-kbd:go-back" => ipc_go_back.store(true, Ordering::Release),
+                    "pmma-kbd:go-forward" => ipc_go_forward.store(true, Ordering::Release),
+                    "pmma-kbd:reload" => ipc_reload.store(true, Ordering::Release),
+                    "pmma-kbd:reload-hard" => ipc_reload_hard.store(true, Ordering::Release),
+                    "pmma-kbd:show-url" => ipc_show_url.store(true, Ordering::Release),
                     _ => {}
                 }
             } else if ipc_notifications {
@@ -336,6 +351,31 @@ pub fn run(
                 }
             }
             return;
+        }
+
+        if go_back_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("window.history.back()");
+        }
+
+        if go_forward_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("window.history.forward()");
+        }
+
+        if reload_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.reload();
+        }
+
+        // Ctrl+Shift+R: hard reload bypassing cache. WebKit honors the
+        // deprecated `true` argument to location.reload(); wry has no
+        // dedicated API for this.
+        if reload_hard_requested.swap(false, Ordering::Acquire) {
+            let _ = webview.evaluate_script("location.reload(true)");
+        }
+
+        if show_url_requested.swap(false, Ordering::Acquire) {
+            if let Ok(url) = webview.url() {
+                show_url_dialog(&window, &url);
+            }
         }
 
         // Handle tray events
@@ -564,8 +604,8 @@ fn percent_decode(s: &str) -> String {
 /// phase ensures we intercept before the web app's own handlers.
 fn keyboard_shortcut_script() -> &'static str {
     r#"document.addEventListener('keydown', function(e) {
+    var t = window.__pmma_token || '';
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        var t = window.__pmma_token || '';
         if (e.key === 'w' || e.key === 'W') {
             e.preventDefault();
             e.stopPropagation();
@@ -574,6 +614,30 @@ fn keyboard_shortcut_script() -> &'static str {
             e.preventDefault();
             e.stopPropagation();
             window.ipc.postMessage(t + ':pmma-kbd:quit-app');
+        } else if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:reload');
+        } else if (e.key === 'l' || e.key === 'L') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:show-url');
+        }
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+        if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:reload-hard');
+        }
+    } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:go-back');
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:go-forward');
         }
     }
 }, true);"#
@@ -668,6 +732,39 @@ fn show_close_confirmation(window: &tao::window::Window) -> bool {
     {
         let _ = window;
         true
+    }
+}
+
+/// Show a modal dialog with the current page URL pre-selected so the user
+/// can copy it with Ctrl+C. Triggered by Ctrl+L.
+fn show_url_dialog(window: &tao::window::Window, url: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        use tao::platform::unix::WindowExtUnix;
+        let gtk_win = window.gtk_window();
+        let parent: &gtk::Window = gtk_win.upcast_ref();
+        let dialog = gtk::Dialog::with_buttons(
+            Some("Current URL"),
+            Some(parent),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            &[("Close", gtk::ResponseType::Close)],
+        );
+        let content = dialog.content_area();
+        let entry = gtk::Entry::new();
+        entry.set_text(url);
+        entry.set_editable(false);
+        entry.set_width_chars(60);
+        content.pack_start(&entry, true, true, 8);
+        content.show_all();
+        entry.grab_focus();
+        entry.select_region(0, -1);
+        dialog.run();
+        dialog.close();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (window, url);
     }
 }
 
