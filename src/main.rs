@@ -282,7 +282,8 @@ fn main() -> Result<()> {
                         Err(e) => eprintln!("[debug] browser binary: {}", e),
                     }
                 }
-                browser::run(&app_config, &data_dir, &effective_url)?;
+                let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
+                browser::run(&app_config, &data_dir, &effective_url, config_dir)?;
             } else {
                 let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
                 if debug {
