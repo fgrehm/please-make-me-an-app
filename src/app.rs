@@ -585,6 +585,9 @@ fn keyboard_shortcut_script() -> &'static str {
 const BEFOREUNLOAD_CHECK: &str = r#"(function() {
     var t = window.__pmma_token || '';
     var event = new Event('beforeunload', { cancelable: true });
+    // Generic Event.returnValue defaults to true (boolean), not "" like
+    // BeforeUnloadEvent. Override so only explicit handler sets are detected.
+    Object.defineProperty(event, 'returnValue', { value: '', writable: true });
     window.dispatchEvent(event);
     if (event.defaultPrevented || event.returnValue) {
         window.ipc.postMessage(t + ':pmma-close:blocked');
