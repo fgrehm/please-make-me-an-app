@@ -1,7 +1,8 @@
 use crate::config::{AppConfig, Backend};
+use crate::inject;
 use anyhow::{bail, Context, Result};
-use std::path::{Path, PathBuf};
 use serde_json::json;
+use std::path::{Path, PathBuf};
 
 /// Candidate binary names for each browser backend.
 fn binary_candidates(backend: &Backend) -> &'static [&'static str] {
@@ -104,10 +105,18 @@ pub fn generate_extension(
     config_dir: &Path,
     data_dir: &Path,
 ) -> Result<Option<PathBuf>> {
-    let css = read_inject_css(config, config_dir)?;
-    let js = read_inject_js(config, config_dir)?;
+    let css = inject::resolve_content(
+        config.inject.css.as_deref(),
+        config.inject.css_file.as_deref(),
+        config_dir,
+    )?;
+    let js = inject::resolve_content(
+        config.inject.js.as_deref(),
+        config.inject.js_file.as_deref(),
+        config_dir,
+    )?;
 
-    if css.is_empty() && js.is_empty() {
+    if css.is_none() && js.is_none() {
         return Ok(None);
     }
 
@@ -116,66 +125,34 @@ pub fn generate_extension(
         .with_context(|| format!("Failed to create extension dir: {}", ext_dir.display()))?;
 
     let match_pattern = url_origin_pattern(&config.url);
+    let css_files: &[&str] = if css.is_some() { &["content.css"] } else { &[] };
+    let js_files: &[&str] = if js.is_some() { &["content.js"] } else { &[] };
 
-    let mut css_files: Vec<&str> = vec![];
-    let mut js_files: Vec<&str> = vec![];
-
-    if !css.is_empty() {
-        std::fs::write(ext_dir.join("content.css"), &css)
+    if let Some(css) = css {
+        std::fs::write(ext_dir.join("content.css"), css)
             .context("Failed to write extension content.css")?;
-        css_files.push("content.css");
     }
 
-    if !js.is_empty() {
-        std::fs::write(ext_dir.join("content.js"), &js)
+    if let Some(js) = js {
+        std::fs::write(ext_dir.join("content.js"), js)
             .context("Failed to write extension content.js")?;
-        js_files.push("content.js");
     }
 
-    let manifest = build_manifest(&config.name, &match_pattern, &css_files, &js_files);
+    let manifest = build_manifest(&config.name, &match_pattern, css_files, js_files);
     std::fs::write(ext_dir.join("manifest.json"), manifest)
         .context("Failed to write extension manifest.json")?;
 
     Ok(Some(ext_dir))
 }
 
-/// Read the combined CSS inject content from inline config and optional file.
-fn read_inject_css(config: &AppConfig, config_dir: &Path) -> Result<String> {
-    let mut content = String::new();
-    if let Some(css) = &config.inject.css {
-        content.push_str(css);
-    }
-    if let Some(path) = &config.inject.css_file {
-        let full = if path.is_absolute() { path.clone() } else { config_dir.join(path) };
-        let file = std::fs::read_to_string(&full)
-            .with_context(|| format!("Failed to read CSS file: {}", full.display()))?;
-        content.push_str(&file);
-    }
-    Ok(content)
-}
-
-/// Read the combined JS inject content from inline config and optional file.
-fn read_inject_js(config: &AppConfig, config_dir: &Path) -> Result<String> {
-    let mut content = String::new();
-    if let Some(js) = &config.inject.js {
-        content.push_str(js);
-    }
-    if let Some(path) = &config.inject.js_file {
-        let full = if path.is_absolute() { path.clone() } else { config_dir.join(path) };
-        let file = std::fs::read_to_string(&full)
-            .with_context(|| format!("Failed to read JS file: {}", full.display()))?;
-        content.push_str(&file);
-    }
-    Ok(content)
-}
-
 /// Build a Chrome extension match pattern covering the app's entire origin.
 /// e.g. "https://mail.google.com/mail/u/0/" -> "https://mail.google.com/*"
 fn url_origin_pattern(url: &str) -> String {
-    let after_scheme = url.find("://").map(|i| &url[..i + 3]).unwrap_or("https://");
-    let rest = url.find("://").map(|i| &url[i + 3..]).unwrap_or(url);
+    let sep = url.find("://");
+    let scheme = sep.map(|i| &url[..i + 3]).unwrap_or("https://");
+    let rest = sep.map(|i| &url[i + 3..]).unwrap_or(url);
     let host = rest.split('/').next().unwrap_or(rest);
-    format!("{}{}/*", after_scheme, host)
+    format!("{}{}/*", scheme, host)
 }
 
 /// Build the manifest.json content for the unpacked extension.
@@ -455,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn url_origin_pattern_with_path() {
+    fn url_origin_pattern_strips_path() {
         assert_eq!(
             url_origin_pattern("https://mail.google.com/mail/u/0/"),
             "https://mail.google.com/*"
@@ -463,12 +440,12 @@ mod tests {
     }
 
     #[test]
-    fn url_origin_pattern_no_path() {
+    fn url_origin_pattern_bare_host() {
         assert_eq!(url_origin_pattern("https://example.com"), "https://example.com/*");
     }
 
     #[test]
-    fn url_origin_pattern_http() {
+    fn url_origin_pattern_preserves_scheme() {
         assert_eq!(
             url_origin_pattern("http://localhost:3000/app"),
             "http://localhost:3000/*"
@@ -476,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn build_manifest_css_and_js() {
+    fn build_manifest_with_css_and_js() {
         let m = build_manifest("myapp", "https://example.com/*", &["content.css"], &["content.js"]);
         let v: serde_json::Value = serde_json::from_str(&m).unwrap();
         assert_eq!(v["manifest_version"], 3);
@@ -489,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn build_manifest_css_only() {
+    fn build_manifest_omits_js_key_when_css_only() {
         let m = build_manifest("app", "https://example.com/*", &["content.css"], &[]);
         let v: serde_json::Value = serde_json::from_str(&m).unwrap();
         let script = &v["content_scripts"][0];
@@ -498,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn build_manifest_js_only() {
+    fn build_manifest_omits_css_key_when_js_only() {
         let m = build_manifest("app", "https://example.com/*", &[], &["content.js"]);
         let v: serde_json::Value = serde_json::from_str(&m).unwrap();
         let script = &v["content_scripts"][0];
@@ -515,20 +492,27 @@ mod tests {
     }
 
     #[test]
-    fn generate_extension_with_inline_css() {
+    fn generate_extension_writes_css_file_for_inline_css() {
         let mut config = config::test_config();
         config.inject.css = Some(".ad { display: none; }".to_string());
         let dir = tempfile::tempdir().unwrap();
         let ext_dir = generate_extension(&config, dir.path(), dir.path()).unwrap().unwrap();
-        assert!(ext_dir.join("manifest.json").exists());
-        assert!(ext_dir.join("content.css").exists());
-        assert!(!ext_dir.join("content.js").exists());
         let css = std::fs::read_to_string(ext_dir.join("content.css")).unwrap();
         assert!(css.contains(".ad { display: none; }"));
+        assert!(ext_dir.join("manifest.json").exists());
     }
 
     #[test]
-    fn generate_extension_with_inline_js() {
+    fn generate_extension_skips_js_file_when_no_js_config() {
+        let mut config = config::test_config();
+        config.inject.css = Some(".ad { display: none; }".to_string());
+        let dir = tempfile::tempdir().unwrap();
+        let ext_dir = generate_extension(&config, dir.path(), dir.path()).unwrap().unwrap();
+        assert!(!ext_dir.join("content.js").exists());
+    }
+
+    #[test]
+    fn generate_extension_writes_js_file_for_inline_js() {
         let mut config = config::test_config();
         config.inject.js = Some("console.log('hello');".to_string());
         let dir = tempfile::tempdir().unwrap();
@@ -539,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_extension_manifest_has_correct_origin() {
+    fn generate_extension_manifest_uses_app_url_origin() {
         let mut config = config::test_config();
         config.url = "https://mail.google.com/mail/u/0/".to_string();
         config.inject.js = Some("console.log('hi');".to_string());

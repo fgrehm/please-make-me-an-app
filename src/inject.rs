@@ -39,7 +39,7 @@ pub fn build_init_script(config: &AppConfig, config_dir: &Path) -> Result<Option
 
 /// Load inject content from inline string, file reference, or both.
 /// If both are provided, file content comes first, then inline content.
-fn resolve_content(
+pub(crate) fn resolve_content(
     inline: Option<&str>,
     file: Option<&Path>,
     config_dir: &Path,
