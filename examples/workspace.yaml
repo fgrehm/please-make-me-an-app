@@ -1,0 +1,14 @@
+name: workspace
+url: https://mail.google.com
+# Chromium backend: full Google Meet support (WebRTC, camera, mic permissions).
+# Tradeoff: tray, notification forwarding, CSS/JS injection, and adblock are
+# unavailable in browser mode. Use workspace-light.yaml for those features.
+backend: chromium
+window:
+  title: Google Workspace
+  width: 1280
+  height: 900
+  remember_position: true
+profiles:
+  - name: personal
+  - name: work

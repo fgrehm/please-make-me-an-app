@@ -65,6 +65,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub allowed_domains: Vec<String>,
 
+    #[serde(default)]
+    pub excluded_domains: Vec<String>,
+
     #[serde(default = "default_open_external_links")]
     pub open_external_links: bool,
 
@@ -345,6 +348,7 @@ pub fn test_config() -> AppConfig {
         user_agent: None,
         clipboard: true,
         allowed_domains: vec![],
+        excluded_domains: vec![],
         open_external_links: true,
         navigator: NavigatorConfig::default(),
         adblock: true,

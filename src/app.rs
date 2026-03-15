@@ -196,10 +196,11 @@ pub fn run(
 
     let app_domain = extract_domain(&config.url).unwrap_or("").to_string();
     let allowed = config.allowed_domains.clone();
+    let excluded = config.excluded_domains.clone();
     let nav_debug = debug;
     let nav_open_external = config.open_external_links;
     builder = builder.with_navigation_handler(move |url| {
-        if should_open_externally(&url, &app_domain, &allowed) {
+        if should_open_externally(&url, &app_domain, &allowed, &excluded) {
             if nav_debug {
                 eprintln!("[debug] nav blocked (external): {}", url);
             }
@@ -519,7 +520,12 @@ fn build_navigator_override_script(nav: &crate::config::NavigatorConfig) -> Opti
 }
 
 /// Check if a URL should be opened in the system browser instead of the webview.
-fn should_open_externally(url: &str, app_domain: &str, allowed_domains: &[String]) -> bool {
+fn should_open_externally(
+    url: &str,
+    app_domain: &str,
+    allowed_domains: &[String],
+    excluded_domains: &[String],
+) -> bool {
     // mailto: and tel: always go to the system handler
     if url.starts_with("mailto:") || url.starts_with("tel:") {
         return true;
@@ -535,10 +541,13 @@ fn should_open_externally(url: &str, app_domain: &str, allowed_domains: &[String
         None => return false,
     };
 
+    // Excluded domains always open externally, even if they match allowed_domains
+    if excluded_domains.iter().any(|d| domain_matches(domain, d)) {
+        return true;
+    }
+
     !domain_matches(domain, app_domain)
-        && !allowed_domains
-            .iter()
-            .any(|d| domain_matches(domain, d))
+        && !allowed_domains.iter().any(|d| domain_matches(domain, d))
 }
 
 fn domain_matches(domain: &str, pattern: &str) -> bool {
@@ -801,6 +810,7 @@ mod tests {
         assert!(!should_open_externally(
             "https://mail.google.com/inbox",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -810,6 +820,7 @@ mod tests {
         assert!(!should_open_externally(
             "https://sub.mail.google.com/page",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -819,6 +830,7 @@ mod tests {
         assert!(should_open_externally(
             "https://example.com/link",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -829,7 +841,8 @@ mod tests {
         assert!(!should_open_externally(
             "https://accounts.google.com/login",
             "mail.google.com",
-            &allowed
+            &allowed,
+            &[]
         ));
     }
 
@@ -839,7 +852,44 @@ mod tests {
         assert!(!should_open_externally(
             "https://accounts.google.com/login",
             "mail.google.com",
-            &allowed
+            &allowed,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn excluded_domain_opens_externally_even_if_allowed() {
+        let allowed = vec!["google.com".to_string()];
+        let excluded = vec!["meet.google.com".to_string()];
+        assert!(should_open_externally(
+            "https://meet.google.com/abc-def",
+            "mail.google.com",
+            &allowed,
+            &excluded
+        ));
+    }
+
+    #[test]
+    fn excluded_parent_domain_matches_subdomains() {
+        let excluded = vec!["google.com".to_string()];
+        assert!(should_open_externally(
+            "https://meet.google.com/abc-def",
+            "mail.google.com",
+            &[],
+            &excluded
+        ));
+    }
+
+    #[test]
+    fn non_excluded_allowed_domain_stays_in_app() {
+        let allowed = vec!["google.com".to_string()];
+        let excluded = vec!["meet.google.com".to_string()];
+        // calendar.google.com is allowed but not excluded, so stays in app
+        assert!(!should_open_externally(
+            "https://calendar.google.com/calendar",
+            "mail.google.com",
+            &allowed,
+            &excluded
         ));
     }
 
@@ -848,6 +898,7 @@ mod tests {
         assert!(should_open_externally(
             "mailto:user@example.com",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -857,6 +908,7 @@ mod tests {
         assert!(should_open_externally(
             "tel:+1234567890",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -866,6 +918,7 @@ mod tests {
         assert!(!should_open_externally(
             "blob:https://mail.google.com/abc123",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
@@ -875,6 +928,7 @@ mod tests {
         assert!(!should_open_externally(
             "about:blank",
             "mail.google.com",
+            &[],
             &[]
         ));
     }
