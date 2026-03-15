@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop};
-use tao::window::WindowBuilder;
+use tao::window::{Fullscreen, WindowBuilder};
 use wry::{NewWindowResponse, WebContext, WebViewBuilder};
 
 pub fn run(
@@ -136,6 +136,11 @@ pub fn run(
     // Keyboard shortcuts (Ctrl+W to close window, Ctrl+Q to quit)
     builder = builder.with_initialization_script(keyboard_shortcut_script());
 
+    // Fullscreen API polyfill: maps requestFullscreen/exitFullscreen to native
+    // window fullscreen via IPC. Without this, video fullscreen buttons are no-ops
+    // because WebKitGTK's built-in fullscreen implementation is not wired up.
+    builder = builder.with_initialization_script(fullscreen_polyfill_script());
+
     // Flags shared between the IPC handler and the event loop.
     // The IPC handler sets them; the event loop reads and resets them.
     let raise_requested = Arc::new(AtomicBool::new(false));
@@ -148,6 +153,8 @@ pub fn run(
     let reload_requested = Arc::new(AtomicBool::new(false));
     let reload_hard_requested = Arc::new(AtomicBool::new(false));
     let show_url_requested = Arc::new(AtomicBool::new(false));
+    let enter_fullscreen_requested = Arc::new(AtomicBool::new(false));
+    let exit_fullscreen_requested = Arc::new(AtomicBool::new(false));
 
     {
         // Cloned into the IPC closure which must be 'static (outlives this function)
@@ -164,6 +171,8 @@ pub fn run(
         let ipc_reload = reload_requested.clone();
         let ipc_reload_hard = reload_hard_requested.clone();
         let ipc_show_url = show_url_requested.clone();
+        let ipc_enter_fs = enter_fullscreen_requested.clone();
+        let ipc_exit_fs = exit_fullscreen_requested.clone();
         let ipc_token_prefix = format!("{}:", ipc_token);
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
@@ -181,6 +190,8 @@ pub fn run(
                     "pmma-kbd:reload" => ipc_reload.store(true, Ordering::Release),
                     "pmma-kbd:reload-hard" => ipc_reload_hard.store(true, Ordering::Release),
                     "pmma-kbd:show-url" => ipc_show_url.store(true, Ordering::Release),
+                    "pmma-fullscreen:enter" => ipc_enter_fs.store(true, Ordering::Release),
+                    "pmma-fullscreen:exit" => ipc_exit_fs.store(true, Ordering::Release),
                     _ => {}
                 }
             } else if ipc_notifications {
@@ -377,6 +388,14 @@ pub fn run(
             if let Ok(url) = webview.url() {
                 show_url_dialog(&window, &url);
             }
+        }
+
+        if enter_fullscreen_requested.swap(false, Ordering::Acquire) {
+            window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        }
+
+        if exit_fullscreen_requested.swap(false, Ordering::Acquire) {
+            window.set_fullscreen(None);
         }
 
         // Handle tray events
@@ -650,6 +669,70 @@ fn keyboard_shortcut_script() -> &'static str {
         }
     }
 }, true);"#
+}
+
+/// JS initialization script that polyfills the Fullscreen API.
+///
+/// WebKitGTK has its own fullscreen implementation but wry does not wire it up
+/// to the host window, so `element.requestFullscreen()` is a no-op. This
+/// polyfill intercepts all standard and webkit-prefixed fullscreen calls,
+/// forwards them to the host via IPC, and dispatches `fullscreenchange` events
+/// so web apps (video players, games, etc.) behave correctly.
+fn fullscreen_polyfill_script() -> &'static str {
+    r#"(function() {
+    if (window.__pmma_fullscreen__) return;
+    window.__pmma_fullscreen__ = true;
+
+    var fsElement = null;
+
+    function dispatch(el) {
+        var ev = new Event('fullscreenchange', { bubbles: true });
+        document.dispatchEvent(ev);
+        if (el) el.dispatchEvent(ev);
+        var wk = new Event('webkitfullscreenchange', { bubbles: true });
+        document.dispatchEvent(wk);
+        if (el) el.dispatchEvent(wk);
+    }
+
+    function enter(el) {
+        fsElement = el;
+        var t = window.__pmma_token || '';
+        window.ipc.postMessage(t + ':pmma-fullscreen:enter');
+        dispatch(el);
+        return Promise.resolve();
+    }
+
+    function exit() {
+        var prev = fsElement;
+        fsElement = null;
+        var t = window.__pmma_token || '';
+        window.ipc.postMessage(t + ':pmma-fullscreen:exit');
+        dispatch(prev);
+        return Promise.resolve();
+    }
+
+    Object.defineProperty(document, 'fullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenEnabled', { get: function() { return true; }, configurable: true });
+    Object.defineProperty(document, 'fullscreenElement', { get: function() { return fsElement; }, configurable: true });
+    Object.defineProperty(document, 'webkitFullscreenElement', { get: function() { return fsElement; }, configurable: true });
+    Object.defineProperty(document, 'webkitCurrentFullScreenElement', { get: function() { return fsElement; }, configurable: true });
+
+    Element.prototype.requestFullscreen = function() { return enter(this); };
+    Element.prototype.webkitRequestFullscreen = function() { return enter(this); };
+    Element.prototype.webkitRequestFullScreen = function() { return enter(this); };
+
+    document.exitFullscreen = exit;
+    document.webkitExitFullscreen = exit;
+    document.webkitCancelFullScreen = exit;
+
+    // Escape exits fullscreen (mirrors native browser behaviour)
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && fsElement) {
+            e.preventDefault();
+            exit();
+        }
+    }, true);
+})();"#
 }
 
 /// JS evaluated on demand to check if the page's beforeunload handler would
