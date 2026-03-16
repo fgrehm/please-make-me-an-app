@@ -208,6 +208,9 @@ pub fn run(
     let app_domain = extract_domain(&config.url).unwrap_or("").to_string();
     let allowed = config.allowed_domains.clone();
     let excluded = config.excluded_domains.clone();
+    let url_dialog_app_domain = app_domain.clone();
+    let url_dialog_allowed = allowed.clone();
+    let url_dialog_excluded = excluded.clone();
     let nav_debug = debug;
     let nav_open_external = config.open_external_links;
     builder = builder.with_navigation_handler(move |url| {
@@ -387,7 +390,15 @@ pub fn run(
 
         if show_url_requested.swap(false, Ordering::Acquire) {
             if let Ok(url) = webview.url() {
-                show_url_dialog(&window, &url);
+                if let Some(new_url) = show_url_dialog(
+                    &window,
+                    &url,
+                    &url_dialog_app_domain,
+                    &url_dialog_allowed,
+                    &url_dialog_excluded,
+                ) {
+                    let _ = webview.load_url(&new_url);
+                }
             }
         }
 
@@ -846,9 +857,18 @@ fn show_close_confirmation(window: &tao::window::Window) -> bool {
     }
 }
 
-/// Show a modal dialog with the current page URL pre-selected so the user
-/// can copy it with Ctrl+C. Triggered by Ctrl+L.
-fn show_url_dialog(window: &tao::window::Window, url: &str) {
+/// Show a modal address-bar dialog pre-filled with the current URL.
+/// The user can edit the URL and press Enter or "Go" to navigate.
+/// Returns the URL to navigate to, or None if the user cancelled.
+/// Navigation is blocked (with an inline error) if the entered URL's domain
+/// does not match the app domain or any entry in allowed_domains.
+fn show_url_dialog(
+    window: &tao::window::Window,
+    url: &str,
+    app_domain: &str,
+    allowed_domains: &[String],
+    excluded_domains: &[String],
+) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         use gtk::prelude::*;
@@ -856,26 +876,60 @@ fn show_url_dialog(window: &tao::window::Window, url: &str) {
         let gtk_win = window.gtk_window();
         let parent: &gtk::Window = gtk_win.upcast_ref();
         let dialog = gtk::Dialog::with_buttons(
-            Some("Current URL"),
+            Some("Navigate to URL"),
             Some(parent),
             gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
-            &[("Close", gtk::ResponseType::Close)],
+            &[
+                ("Cancel", gtk::ResponseType::Cancel),
+                ("Go", gtk::ResponseType::Accept),
+            ],
         );
         let content = dialog.content_area();
         let entry = gtk::Entry::new();
         entry.set_text(url);
-        entry.set_editable(false);
         entry.set_width_chars(60);
+        let error_label = gtk::Label::new(None);
         content.pack_start(&entry, true, true, 8);
+        content.pack_start(&error_label, false, false, 4);
         content.show_all();
+        error_label.hide();
         entry.grab_focus();
         entry.select_region(0, -1);
-        dialog.run();
+
+        {
+            let dialog_clone = dialog.clone();
+            entry.connect_activate(move |_| {
+                dialog_clone.response(gtk::ResponseType::Accept);
+            });
+        }
+
+        let result = loop {
+            match dialog.run() {
+                gtk::ResponseType::Accept => {
+                    let typed = entry.text().to_string();
+                    if should_open_externally(&typed, app_domain, allowed_domains, excluded_domains) {
+                        let allowed: Vec<&str> = std::iter::once(app_domain)
+                            .chain(allowed_domains.iter().map(String::as_str))
+                            .collect();
+                        error_label.set_text(&format!(
+                            "Domain not allowed. Permitted: {}",
+                            allowed.join(", ")
+                        ));
+                        error_label.show();
+                    } else {
+                        break Some(typed);
+                    }
+                }
+                _ => break None,
+            }
+        };
         dialog.close();
+        result
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (window, url);
+        let _ = (window, url, app_domain, allowed_domains, excluded_domains);
+        None
     }
 }
 

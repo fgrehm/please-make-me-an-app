@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Ctrl+L address bar**: now editable; paste any URL from an allowed domain to navigate directly in the app. Invalid domains show an inline error and keep the dialog open.
+
 ## [0.2.0] - 2026-03-15
 
 ### Added

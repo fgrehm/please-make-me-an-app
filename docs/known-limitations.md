@@ -109,6 +109,16 @@ Apps that use extensions only for optional features (e.g., a "share to X" button
 
 **Scope:** This is inherent to using a non-Chromium webview. Tauri and GNOME Web have the same limitation.
 
+## No Domain-Specific HTTPS URL Handling
+
+The freedesktop `.desktop` MIME type system routes URLs by **scheme**, not by domain. Registering `MimeType=x-scheme-handler/https` would make please-make-me-an-app the default handler for every HTTPS link system-wide, which is clearly wrong.
+
+There is no XDG mechanism to say "open `https://www.notion.so/*` in this app but leave all other HTTPS links alone." The `url_schemes` config field handles custom protocol schemes (e.g., `notion://`, `figma://`, `whatsapp://`) where an app emits a proprietary scheme. It does not help when the link is a plain `https://` URL.
+
+**Partial workaround:** Use Ctrl+L inside the app to open the address bar and paste any URL from the configured domains directly. This avoids opening a browser tab just to navigate to a specific page.
+
+**Full workaround:** A companion browser extension is the only way to intercept clicks on HTTPS links in other apps. The extension would be configured with domain-to-config mappings. When a tab navigates to a matching origin, it passes the URL to the local PMMA instance via native messaging or a registered `pmma://` scheme handler, then closes the tab. See [docs/ideas.md](ideas.md) for the design sketch.
+
 ## Browser Mode Limitations
 
 When `backend` is set to `brave`, `chrome`, or `chromium`, the app launches in the system browser's app mode (`--app`) instead of the embedded WebKitGTK webview. This is a fallback for sites that don't work with WebKitGTK (Cloudflare Turnstile, WebAuthn, etc.). Browser mode has its own trade-offs.

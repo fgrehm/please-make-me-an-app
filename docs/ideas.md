@@ -19,6 +19,34 @@ Add a config flag or `--devtools` CLI arg so users can open devtools in release 
 
 Package individual apps as standalone binaries with the config embedded. Self-contained executables that don't require the CLI to be installed.
 
+## Companion browser extension for domain-based routing
+
+A browser extension (Chrome/Firefox) that intercepts HTTPS navigation and routes matching URLs to please-make-me-an-app instead. This would fill the gap described in [docs/known-limitations.md](known-limitations.md) under "No Domain-Specific HTTPS URL Handling."
+
+**User-facing config** (sketch):
+
+```yaml
+# In the app config, declare which HTTPS origins this app should capture.
+capture_origins:
+  - https://www.notion.so
+  - https://notion.so
+```
+
+**How it would work:**
+
+1. The extension maintains a list of origins mapped to PMMA config file paths (synced from installed apps or configured manually).
+2. On `webNavigation.onBeforeNavigate`, if the URL's origin matches, the extension:
+   - Calls a native messaging host (`pmma-native-host`) bundled with the CLI, or
+   - Redirects to a `pmma://open?config=<path>&url=<encoded-url>` URI handled by a registered scheme handler.
+3. The native host or scheme handler invokes `please-make-me-an-app open <config> --url <url>`.
+4. The browser tab is closed (or redirected to a blank page).
+
+**Trade-offs:**
+- Requires the extension to be installed in the user's browser.
+- Native messaging requires a host manifest installed at the right path (`~/.config/google-chrome/NativeMessagingHosts/` etc.).
+- The `pmma://` scheme approach is simpler to implement but passes the URL through the shell, which requires careful escaping.
+- Firefox and Chrome both support native messaging; the extension could target both via WebExtension APIs.
+
 ## User-specified extensions for browser backend
 
 Allow browser-mode apps to load user-specified Chrome extensions via `extensions: [/path/to/unpacked-ext]` in config. Useful for apps like Loom where the extension adds recording UI via content scripts.
