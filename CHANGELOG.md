@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Popup toast**: a brief toast (top-center, blue) appears in the webview whenever a popup is sent to the system browser or denied (non-http URL)
+
 ### Changed
 
 - **Ctrl+L address bar**: now editable; paste any URL from an allowed domain to navigate directly in the app. Invalid domains show an inline error and keep the dialog open.

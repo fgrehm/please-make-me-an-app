@@ -3,6 +3,7 @@ use crate::{adblock, icon, inject, notification, profile, tray};
 use anyhow::Result;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tao::event::{Event, WindowEvent};
@@ -231,6 +232,7 @@ pub fn run(
     });
 
     let popup_debug = debug;
+    let (popup_tx, popup_rx) = mpsc::channel::<String>();
     builder = builder.with_new_window_req_handler(move |url, _features| {
         // Never allow popups: NewWindowResponse::Allow creates unmanaged GTK windows
         // with no icon, no navigation handler, and no tray integration.
@@ -240,9 +242,13 @@ pub fn run(
             if popup_debug {
                 eprintln!("[debug] popup -> browser: {}", target);
             }
+            let _ = popup_tx.send(format!("Opened in browser: {}", target));
             open_in_browser(&target);
-        } else if popup_debug {
-            eprintln!("[debug] popup denied (non-http): {}", url);
+        } else {
+            if popup_debug {
+                eprintln!("[debug] popup denied (non-http): {}", url);
+            }
+            let _ = popup_tx.send(format!("Popup denied: {}", url));
         }
         NewWindowResponse::Deny
     });
@@ -418,6 +424,11 @@ pub fn run(
             is_fullscreen = false;
             let _ = webview
                 .evaluate_script("if(window.__pmma_fs_reset)window.__pmma_fs_reset()");
+        }
+
+        // Show toast for any popup that was sent to the browser (or denied)
+        while let Ok(msg) = popup_rx.try_recv() {
+            let _ = webview.evaluate_script(&popup_toast_script(&msg));
         }
 
         // Handle tray events
@@ -931,6 +942,19 @@ fn show_url_dialog(
         let _ = (window, url, app_domain, allowed_domains, excluded_domains);
         None
     }
+}
+
+fn popup_toast_script(msg: &str) -> String {
+    format!(
+        r#"(function(msg){{
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);max-width:420px;word-break:break-all;background:rgba(37,99,235,0.92);color:#fff;padding:8px 12px;border-radius:6px;font-size:13px;font-family:sans-serif;z-index:2147483647;pointer-events:none;opacity:1;transition:opacity 0.4s ease';
+  t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(function(){{t.style.opacity='0';setTimeout(function(){{if(t.parentNode)t.parentNode.removeChild(t)}},400)}},3000);
+}})('{}')"#,
+        escape_js_string(msg)
+    )
 }
 
 fn open_in_browser(url: &str) {
