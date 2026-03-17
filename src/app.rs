@@ -331,6 +331,7 @@ pub fn run(
         // beforeunload check confirmed: safe to close
         if close_confirmed.swap(false, Ordering::Acquire) {
             save_window_position(&window, remember_position, &data_dir);
+            fire_page_cleanup(&webview);
             std::process::exit(0);
         }
 
@@ -339,6 +340,7 @@ pub fn run(
             close_pending = false;
             if show_close_confirmation(&window) {
                 save_window_position(&window, remember_position, &data_dir);
+                fire_page_cleanup(&webview);
                 std::process::exit(0);
             }
             return;
@@ -355,6 +357,7 @@ pub fn run(
             close_pending = true;
             if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                 save_window_position(&window, remember_position, &data_dir);
+                fire_page_cleanup(&webview);
                 std::process::exit(0);
             }
             return;
@@ -369,6 +372,7 @@ pub fn run(
                 close_pending = true;
                 if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                     save_window_position(&window, remember_position, &data_dir);
+                    fire_page_cleanup(&webview);
                     std::process::exit(0);
                 }
             }
@@ -436,6 +440,7 @@ pub fn run(
             if let Ok(menu_event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                 if menu_event.id == ts.quit_id {
                     save_window_position(&window, remember_position, &data_dir);
+                    fire_page_cleanup(&webview);
                     std::process::exit(0);
                 } else if menu_event.id == ts.toggle_id {
                     window_visible = !window_visible;
@@ -465,6 +470,7 @@ pub fn run(
                 close_pending = true;
                 if webview.evaluate_script(BEFOREUNLOAD_CHECK).is_err() {
                     save_window_position(&window, remember_position, &data_dir);
+                    fire_page_cleanup(&webview);
                     std::process::exit(0);
                 }
             }
@@ -498,6 +504,14 @@ fn save_window_position(window: &tao::window::Window, enabled: bool, data_dir: &
 /// capabilities, leaving titlebar buttons disabled. Forcing a resize after
 /// showing triggers a new configure event from the compositor that restores
 /// the capabilities. A short timer resizes back to the original size.
+/// Fire pagehide + unload in the webview and wait briefly for synchronous
+/// handlers to complete. Called before every process exit so apps that track
+/// open tabs via these events get a chance to clean up.
+fn fire_page_cleanup(webview: &wry::WebView) {
+    let _ = webview.evaluate_script(PAGE_CLEANUP);
+    std::thread::sleep(Duration::from_millis(150));
+}
+
 fn toggle_window(window: &tao::window::Window, visible: bool) {
     #[cfg(target_os = "linux")]
     {
@@ -791,6 +805,16 @@ const BEFOREUNLOAD_CHECK: &str = r#"(function() {
     } else {
         window.ipc.postMessage(t + ':pmma-close:confirmed');
     }
+})();"#;
+
+/// JS dispatched before process exit to fire page lifecycle cleanup events.
+/// Gives pages a chance to decrement tab counters, flush localStorage state, etc.
+/// Only synchronous handlers will complete; async cleanup won't survive process exit.
+const PAGE_CLEANUP: &str = r#"(function() {
+    try {
+        window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+        window.dispatchEvent(new Event('unload'));
+    } catch(e) {}
 })();"#;
 
 /// Show a GTK file chooser so the user can pick where to save a download.

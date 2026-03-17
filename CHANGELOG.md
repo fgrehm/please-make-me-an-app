@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Popup toast**: a brief toast (top-center, blue) appears in the webview whenever a popup is sent to the system browser or denied (non-http URL)
+- **Clean shutdown**: `pagehide` and `unload` events are now fired in the webview before process exit on all code paths (X button, Ctrl+W, Ctrl+Q, tray quit); fixes apps that track open tabs via page lifecycle events and believe the session is still active after the window closes
 
 ### Changed
 
