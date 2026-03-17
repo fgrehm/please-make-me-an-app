@@ -44,11 +44,22 @@ capture_origins:
   - https://notion.so
 ```
 
-See `docs/ideas.md` for the full design. Requires: extension (Chrome/Firefox WebExtension API), native messaging host or scheme handler, `install` registering the origin mapping.
+How it would work:
+
+1. The extension maintains a list of origins mapped to PMMA config file paths (synced from installed apps or configured manually).
+2. On `webNavigation.onBeforeNavigate`, if the URL's origin matches, the extension calls a native messaging host (`pmma-native-host`) bundled with the CLI, or redirects to a `pmma://open?config=<path>&url=<encoded-url>` URI handled by a registered scheme handler.
+3. The native host or scheme handler invokes `please-make-me-an-app open <config> --url <url>`.
+4. The browser tab is closed (or redirected to a blank page).
+
+Trade-offs:
+- Requires the extension to be installed in the user's browser.
+- Native messaging requires a host manifest installed at the right path (`~/.config/google-chrome/NativeMessagingHosts/` etc.).
+- The `pmma://` scheme approach is simpler to implement but passes the URL through the shell, which requires careful escaping.
+- Firefox and Chrome both support native messaging; the extension could target both via WebExtension APIs.
 
 ### User-specified extensions for browser backend
 
-Allow browser-mode apps to load user-specified Chrome extensions via an `extensions: [/path/to/unpacked-ext]` config field. Useful for apps like Loom where the extension adds recording UI via content scripts. Toolbar popup extensions are unreachable in `--app` mode; content script extensions still work.
+Allow browser-mode apps to load user-specified Chrome extensions via an `extensions: [/path/to/unpacked-ext]` config field. Useful for apps like Loom where the extension adds recording UI via content scripts. Extensions that rely on a toolbar popup are unreachable in `--app` mode; content script extensions still work. Auto-fetching CRX from the Chrome Web Store is out of scope.
 
 ---
 

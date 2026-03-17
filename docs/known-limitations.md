@@ -117,7 +117,7 @@ There is no XDG mechanism to say "open `https://www.notion.so/*` in this app but
 
 **Partial workaround:** Use Ctrl+L inside the app to open the address bar and paste any URL from the configured domains directly. This avoids opening a browser tab just to navigate to a specific page.
 
-**Full workaround:** A companion browser extension is the only way to intercept clicks on HTTPS links in other apps. The extension would be configured with domain-to-config mappings. When a tab navigates to a matching origin, it passes the URL to the local PMMA instance via native messaging or a registered `pmma://` scheme handler, then closes the tab. See [docs/ideas.md](ideas.md) for the design sketch.
+**Full workaround:** A companion browser extension is the only way to intercept clicks on HTTPS links in other apps. The extension would be configured with domain-to-config mappings. When a tab navigates to a matching origin, it passes the URL to the local PMMA instance via native messaging or a registered `pmma://` scheme handler, then closes the tab. See [ROADMAP.md](../ROADMAP.md) → Companion browser extension for the design sketch.
 
 ## Browser Mode Limitations
 
