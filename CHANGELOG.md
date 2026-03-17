@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-17
+
 ### Added
 
 - **Popup toast**: a brief toast (top-center, blue) appears in the webview whenever a popup is sent to the system browser or denied (non-http URL)
