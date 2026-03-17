@@ -35,9 +35,9 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
 
     // Version resolution, in priority order:
-    // 1. Exact tag on HEAD (CI release builds) -> "0.1.3"
-    // 2. git describe from nearest tag (local/dev builds) -> "0.1.3-5-gabcdef"
-    // 3. Cargo.toml version + "-dev" (no tags at all) -> "0.1.0-dev"
+    // 1. Exact tag on HEAD (CI release builds) -> "0.3.0"
+    // 2. git describe from nearest tag (local/dev builds) -> "0.3.0-5-gabcdef"
+    // 3. No tags at all -> "dev"  (Cargo.toml version is not used)
     let version = Command::new("git")
         .args(["describe", "--tags", "--exact-match"])
         .output()
@@ -59,7 +59,7 @@ fn main() {
                     desc.strip_prefix('v').unwrap_or(&desc).to_string()
                 })
         })
-        .unwrap_or_else(|| format!("{}-dev", env!("CARGO_PKG_VERSION")));
+        .unwrap_or_else(|| "dev".to_string());
 
     println!("cargo:rustc-env=PMMA_VERSION={}", version);
     println!("cargo:rustc-env=PMMA_GIT_HASH={}", git_info);

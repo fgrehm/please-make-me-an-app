@@ -1,6 +1,6 @@
 [package]
 name = "please-make-me-an-app"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 description = "Turn any website into a desktop app with a YAML config file"
 license = "MIT"
