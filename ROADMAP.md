@@ -1,12 +1,10 @@
 # Roadmap
 
-## Current status: v0.2 - functional PoC
-
 Core features work: webview and browser backends, profiles, CSS/JS injection, ad blocking, notifications, tray, `.desktop` generation, single instance, keyboard shortcuts. The known rough edges are documented in `docs/known-limitations.md`.
 
 ---
 
-## v0.3 - Daily driver baseline
+## Daily driver
 
 The goal is removing friction for using this with several apps every day.
 
@@ -30,7 +28,7 @@ Options: call the GTK API directly via `gtk-rs`/`webkit2gtk` bindings, or patch 
 
 ---
 
-## v0.4 - Ecosystem integration
+## Ecosystem integration
 
 ### Companion browser extension: HTTPS domain routing
 
@@ -54,7 +52,7 @@ Allow browser-mode apps to load user-specified Chrome extensions via an `extensi
 
 ---
 
-## v1.0 - Cross-platform
+## Cross-platform
 
 ### macOS
 
@@ -70,7 +68,7 @@ Allow browser-mode apps to load user-specified Chrome extensions via an `extensi
 
 ---
 
-## Stretch (no milestone)
+## Stretch
 
 ### Binary packaging
 
