@@ -20,6 +20,10 @@ See `docs/known-limitations.md` → Event Loop Polling.
 
 Add a `--devtools` CLI flag (and optionally a `devtools: true` config field) to open the WebKit inspector panel. Useful for debugging CSS/JS injection without a separate browser session. wry supports `with_devtools(true)` and `open_devtools()` behind the `devtools` Cargo feature.
 
+### Tray menu: show version
+
+Display the pmmaapp version in the tray context menu (e.g. as a disabled label at the bottom). Helps identify which build is running without going back to the terminal.
+
 ### Native ad blocking
 
 The current JS-level blocker (patching `fetch`, `XMLHttpRequest`, `Image`, `sendBeacon`) cannot block `<script>` tags already in the HTML, CSS `background-image` requests, or `<link rel="preload">`. WebKitGTK's `WebKitUserContentFilter` API provides proper content blocking at the network layer (same mechanism as Safari content blockers), but wry does not expose it.
@@ -32,7 +36,7 @@ Options: call the GTK API directly via `gtk-rs`/`webkit2gtk` bindings, or patch 
 
 ### Companion browser extension: HTTPS domain routing
 
-The biggest missing piece for daily use: clicking a `https://notion.so/...` link in another app (Slack, email, terminal) opens a browser tab instead of the installed PMMA app.
+The biggest missing piece for daily use: clicking a `https://notion.so/...` link in another app (Slack, email, terminal) opens a browser tab instead of the installed pmmaapp app.
 
 The fix is a browser extension that intercepts navigation on configured origins and routes them to the local app via native messaging or a `pmma://` scheme handler.
 
@@ -46,7 +50,7 @@ capture_origins:
 
 How it would work:
 
-1. The extension maintains a list of origins mapped to PMMA config file paths (synced from installed apps or configured manually).
+1. The extension maintains a list of origins mapped to pmmaapp config file paths (synced from installed apps or configured manually).
 2. On `webNavigation.onBeforeNavigate`, if the URL's origin matches, the extension calls a native messaging host (`pmma-native-host`) bundled with the CLI, or redirects to a `pmma://open?config=<path>&url=<encoded-url>` URI handled by a registered scheme handler.
 3. The native host or scheme handler invokes `please-make-me-an-app open <config> --url <url>`.
 4. The browser tab is closed (or redirected to a blank page).
