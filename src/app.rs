@@ -108,10 +108,16 @@ pub fn run(
         );
     }
 
-    if config.adblock {
+    let blocked_domains = if config.adblock {
         let script = adblock::build_script(config.adblock_extra.as_deref(), config_dir);
         builder = builder.with_initialization_script(&script);
-    }
+        Some(adblock::load_blocked_domains(
+            config.adblock_extra.as_deref(),
+            config_dir,
+        ))
+    } else {
+        None
+    };
 
     let icon_path = icon::cached_path(&config.name);
 
@@ -238,6 +244,15 @@ pub fn run(
         // with no icon, no navigation handler, and no tray integration.
         // Instead, open in the system browser (which has password managers, WebAuthn, etc.).
         if url.starts_with("http://") || url.starts_with("https://") {
+            // Silently deny popups from ad/tracker domains when adblock is enabled.
+            if let Some(ref domains) = blocked_domains {
+                if adblock::is_blocked(domains, &url) {
+                    if popup_debug {
+                        eprintln!("[debug] popup blocked (adblock): {}", url);
+                    }
+                    return NewWindowResponse::Deny;
+                }
+            }
             let target = unwrap_google_redirect(&url).unwrap_or(url);
             if popup_debug {
                 eprintln!("[debug] popup -> browser: {}", target);
