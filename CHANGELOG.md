@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-03-20
+
+### Fixed
+
+- **Ad popup spam**: ad iframes (googlesyndication, adtrafficquality) were opening URLs in the system browser via `window.open` before the JS MutationObserver could remove them; popup handler now checks URLs against the adblock domain list on the Rust side and silently denies them
+- Added `adtrafficquality.google` to the default blocklist
+
 ## [0.3.0] - 2026-03-17
 
 ### Added
