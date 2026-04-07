@@ -73,6 +73,15 @@ pub fn run(
         .with_url(url)
         .with_clipboard(config.clipboard);
 
+    // WebKitGTK does not populate clipboardData.items with image data on paste
+    // events, but the async Clipboard API (navigator.clipboard.read()) works.
+    // This polyfill intercepts paste events, reads image data via the async API,
+    // and re-dispatches a synthetic paste event with the image blob attached so
+    // web apps that expect clipboardData.items (like WhatsApp Web) can handle it.
+    if config.clipboard {
+        builder = builder.with_initialization_script(clipboard_image_paste_polyfill());
+    }
+
     if let Some(ua) = &config.user_agent {
         builder = builder.with_user_agent(ua);
         // WebKitGTK ignores with_user_agent for navigator.userAgent in JS,
@@ -686,6 +695,49 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&result).into_owned()
+}
+
+/// JS polyfill for image paste on WebKitGTK. The browser does not populate
+/// `clipboardData.items` with image data on paste events, but the async
+/// Clipboard API (`navigator.clipboard.read()`) works. This script intercepts
+/// paste events in the capture phase, reads image blobs via the async API,
+/// and re-dispatches a new ClipboardEvent with the data attached.
+fn clipboard_image_paste_polyfill() -> &'static str {
+    r#"(function() {
+    if (!navigator.clipboard || !navigator.clipboard.read) return;
+    var handling = false;
+    document.addEventListener('paste', function(e) {
+        if (handling) return;
+        // If clipboardData already has items, the browser handled it natively
+        if (e.clipboardData && e.clipboardData.items && e.clipboardData.items.length > 0) return;
+        // Read from the async Clipboard API and re-dispatch
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        navigator.clipboard.read().then(function(items) {
+            if (!items.length) return;
+            var dt = new DataTransfer();
+            var pending = 0;
+            items.forEach(function(item) {
+                item.types.forEach(function(type) {
+                    pending++;
+                    item.getType(type).then(function(blob) {
+                        dt.items.add(new File([blob], 'paste.' + type.split('/')[1], {type: type}));
+                        pending--;
+                        if (pending === 0) {
+                            handling = true;
+                            document.activeElement.dispatchEvent(new ClipboardEvent('paste', {
+                                clipboardData: dt,
+                                bubbles: true,
+                                cancelable: true
+                            }));
+                            handling = false;
+                        }
+                    });
+                });
+            });
+        }).catch(function() {});
+    }, true);
+})();"#
 }
 
 /// JS initialization script that intercepts Ctrl+W and Ctrl+Q keyboard
@@ -1373,5 +1425,31 @@ mod tests {
     #[test]
     fn percent_decode_truncated() {
         assert_eq!(percent_decode("trail%2"), "trail%2");
+    }
+
+    // -- clipboard_image_paste_polyfill --
+
+    #[test]
+    fn clipboard_polyfill_contains_async_read() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("navigator.clipboard.read()"));
+    }
+
+    #[test]
+    fn clipboard_polyfill_dispatches_paste_event() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("ClipboardEvent('paste'"));
+    }
+
+    #[test]
+    fn clipboard_polyfill_guards_against_reentry() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("if (handling) return"));
+    }
+
+    #[test]
+    fn clipboard_polyfill_skips_when_native_data_present() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("clipboardData.items.length > 0"));
     }
 }
