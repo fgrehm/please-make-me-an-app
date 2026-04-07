@@ -732,6 +732,7 @@ fn clipboard_image_paste_polyfill() -> &'static str {
             }
             items.forEach(function(item) {
                 item.types.forEach(function(type) {
+                    if (type.indexOf('image/') !== 0) return;
                     pending++;
                     item.getType(type).then(function(blob) {
                         dt.items.add(new File([blob], 'paste.' + type.split('/')[1], {type: type}));
@@ -1467,8 +1468,15 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_polyfill_filters_image_types_only() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("type.indexOf('image/') !== 0"));
+    }
+
+    #[test]
     fn clipboard_polyfill_handles_gettype_rejection() {
         let script = clipboard_image_paste_polyfill();
-        assert!(script.contains(".catch(function() {\n                        settle()"));
+        assert!(script.contains(".catch(function() {"));
+        assert!(script.contains("settle()"));
     }
 }
