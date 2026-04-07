@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Clipboard image paste**: apps like WhatsApp Web can now paste images from the clipboard; WebKitGTK does not populate `clipboardData.items` with image data on paste events, so a JS polyfill reads from the async Clipboard API and re-dispatches a synthetic paste event with the image blob attached
+
+### Changed
+
+- Updated dependencies (`cargo update`); wry 0.54.2 -> 0.54.4
+
 ## [0.3.1] - 2026-03-20
 
 ### Fixed
