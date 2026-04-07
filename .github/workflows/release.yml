@@ -76,9 +76,12 @@ jobs:
       - name: Extract changelog for this version
         id: changelog
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # Extract the section for this version from CHANGELOG.md
-          awk "/^## ${VERSION}/"'{found=1; next} /^## v/{if(found) exit} found' CHANGELOG.md > release_body.md
+          # Strip leading "v" from the tag ref (refs/tags/v0.4.0 -> 0.4.0)
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract everything between "## [VERSION]" and the next "## [" heading
+          awk "/^## \[${VERSION}\]/"'{found=1; next} /^## \[/{if(found) exit} found' CHANGELOG.md > release_body.md
+          echo "--- extracted release body ---"
+          cat release_body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
