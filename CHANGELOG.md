@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated dependencies (`cargo update`); wry 0.54.2 -> 0.54.4
-- Added `webkit2gtk` and `glib` as explicit Linux dependencies for clipboard permission handling
 
 ## [0.3.1] - 2026-03-20
 

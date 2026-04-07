@@ -710,6 +710,7 @@ fn clipboard_image_paste_polyfill() -> &'static str {
         if (handling) return;
         // If clipboardData already has items, the browser handled it natively
         if (e.clipboardData && e.clipboardData.items && e.clipboardData.items.length > 0) return;
+        var target = e.target || document.body;
         // Read from the async Clipboard API and re-dispatch
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -717,21 +718,26 @@ fn clipboard_image_paste_polyfill() -> &'static str {
             if (!items.length) return;
             var dt = new DataTransfer();
             var pending = 0;
+            function settle() {
+                pending--;
+                if (pending === 0 && dt.items.length > 0) {
+                    handling = true;
+                    target.dispatchEvent(new ClipboardEvent('paste', {
+                        clipboardData: dt,
+                        bubbles: true,
+                        cancelable: true
+                    }));
+                    handling = false;
+                }
+            }
             items.forEach(function(item) {
                 item.types.forEach(function(type) {
                     pending++;
                     item.getType(type).then(function(blob) {
                         dt.items.add(new File([blob], 'paste.' + type.split('/')[1], {type: type}));
-                        pending--;
-                        if (pending === 0) {
-                            handling = true;
-                            document.activeElement.dispatchEvent(new ClipboardEvent('paste', {
-                                clipboardData: dt,
-                                bubbles: true,
-                                cancelable: true
-                            }));
-                            handling = false;
-                        }
+                        settle();
+                    }).catch(function() {
+                        settle();
                     });
                 });
             });
@@ -1451,5 +1457,18 @@ mod tests {
     fn clipboard_polyfill_skips_when_native_data_present() {
         let script = clipboard_image_paste_polyfill();
         assert!(script.contains("clipboardData.items.length > 0"));
+    }
+
+    #[test]
+    fn clipboard_polyfill_dispatches_on_original_target() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains("var target = e.target"));
+        assert!(script.contains("target.dispatchEvent"));
+    }
+
+    #[test]
+    fn clipboard_polyfill_handles_gettype_rejection() {
+        let script = clipboard_image_paste_polyfill();
+        assert!(script.contains(".catch(function() {\n                        settle()"));
     }
 }
