@@ -64,4 +64,9 @@ fn main() {
     println!("cargo:rustc-env=PMMA_VERSION={}", version);
     println!("cargo:rustc-env=PMMA_GIT_HASH={}", git_info);
     println!("cargo:rustc-env=PMMA_BUILD_DATE={}", build_date);
+
+    // Re-run when git state changes (new commits, tags, branch switches)
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/tags");
+    println!("cargo:rerun-if-changed=.git/refs/heads");
 }
