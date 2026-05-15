@@ -184,11 +184,10 @@ fn resolve_install_config(config: &str) -> Result<PathBuf> {
     // Fall back to parsing the Exec line from the .desktop file
     let apps = desktop::list_installed()?;
     for app in &apps {
-        if app.name == config {
-            if let Some(ref config_path) = app.config_path {
+        if app.name == config
+            && let Some(ref config_path) = app.config_path {
                 return Ok(PathBuf::from(config_path));
             }
-        }
     }
 
     anyhow::bail!(
@@ -242,8 +241,11 @@ fn main() -> Result<()> {
     // Use xdg-desktop-portal for file dialogs when available. On KDE Plasma
     // this shows the native Dolphin-based file picker instead of GTK's.
     // Must be set before GTK initializes (EventLoop::new).
+    // SAFETY: called at the very top of main before any threads exist.
     #[cfg(target_os = "linux")]
-    std::env::set_var("GTK_USE_PORTAL", "1");
+    unsafe {
+        std::env::set_var("GTK_USE_PORTAL", "1")
+    };
 
     let cli = Cli::parse();
 

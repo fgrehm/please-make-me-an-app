@@ -40,11 +40,10 @@ pub fn create(tooltip: &str, icon_rgba: Option<(Vec<u8>, u32, u32)>) -> Result<T
 }
 
 fn icon_from_rgba(rgba: Option<(Vec<u8>, u32, u32)>) -> Icon {
-    if let Some((data, width, height)) = rgba {
-        if let Ok(icon) = Icon::from_rgba(data, width, height) {
+    if let Some((data, width, height)) = rgba
+        && let Ok(icon) = Icon::from_rgba(data, width, height) {
             return icon;
         }
-    }
     default_icon()
 }
 
