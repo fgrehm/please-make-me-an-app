@@ -19,6 +19,7 @@ image = { version = "0.25", default-features = false, features = ["png", "ico", 
 notify-rust = "4"
 serde_json = "1"
 tao = "0.35"
+tempfile = "3"
 tray-icon = "0.24"
 ureq = "3"
 wry = "0.55"
@@ -36,5 +37,3 @@ redundant_clone = "deny"
 needless_collect = "warn"
 large_enum_variant = "warn"
 
-[dev-dependencies]
-tempfile = "3"

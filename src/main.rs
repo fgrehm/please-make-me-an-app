@@ -39,6 +39,7 @@ fn long_version() -> &'static str {
     after_help = "Examples:\n  \
                   please-make-me-an-app open whatsapp.yaml\n  \
                   please-make-me-an-app open gmail.yaml --profile work\n  \
+                  please-make-me-an-app open-url https://example.com\n  \
                   please-make-me-an-app install whatsapp.yaml\n  \
                   please-make-me-an-app list\n  \
                   please-make-me-an-app clear-cache gmail --profile work\n  \
@@ -88,6 +89,30 @@ enum Commands {
         ///
         /// Logs config values, user agent, data directory, and injects a script
         /// that reports navigator properties via IPC.
+        #[arg(long)]
+        debug: bool,
+    },
+
+    /// Open an ad-hoc URL without a config file
+    ///
+    /// Launches a one-off window for the given URL using an ephemeral data
+    /// directory that is discarded on exit. Global defaults (defaults.yaml)
+    /// still apply so settings like adblock and clipboard polyfill are honored.
+    /// Single-instance locking and persistent profile data are skipped.
+    #[command(
+        after_help = "Examples:\n  \
+                      please-make-me-an-app open-url https://example.com\n  \
+                      please-make-me-an-app open-url https://example.com --backend brave",
+    )]
+    OpenUrl {
+        /// URL to open (http:// or https://)
+        url: String,
+
+        /// Which backend to use
+        #[arg(long, value_enum, default_value_t = config::Backend::Webview)]
+        backend: config::Backend,
+
+        /// Print debug info to stderr
         #[arg(long)]
         debug: bool,
     },
@@ -337,6 +362,34 @@ fn main() -> Result<()> {
                 };
                 app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &effective_url)?;
             }
+        }
+        Commands::OpenUrl { url, backend, debug } => {
+            let (app_config, derived_name) = config::ad_hoc(&url, backend)?;
+            let tmp = tempfile::Builder::new()
+                .prefix("pmma-adhoc-")
+                .tempdir()
+                .context("Failed to create ephemeral data directory")?;
+            let data_dir = tmp.path().to_path_buf();
+            let profile_name = config::DEFAULT_PROFILE.to_string();
+
+            if debug {
+                eprintln!("[debug] ad-hoc url: {}", url);
+                eprintln!("[debug] derived name: {}", derived_name);
+                eprintln!("[debug] backend: {}", app_config.backend.display_name());
+                eprintln!("[debug] data_dir (ephemeral): {}", data_dir.display());
+            }
+
+            // No config file on disk; pass the current dir for relative-path resolution.
+            // Ad-hoc configs don't reference inject css_file/js_file, so this is a no-op.
+            let config_dir = Path::new(".");
+            if app_config.backend.is_browser() {
+                browser::warn_ignored_options(&app_config);
+                browser::run(&app_config, &data_dir, &url, config_dir)?;
+            } else {
+                app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &url)?;
+            }
+            // tmp drops here and removes the ephemeral data dir.
+            drop(tmp);
         }
         Commands::Install { config } => {
             let config_path = resolve_install_config(&config)?;
