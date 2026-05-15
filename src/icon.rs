@@ -141,12 +141,11 @@ fn find_icon_from_manifest(html: &str, page_url: &str) -> Option<String> {
         let tag_lower = &html_lower[start..=end];
         let tag_original = &html[start..=end];
 
-        if tag_lower.contains("rel=\"manifest\"") || tag_lower.contains("rel='manifest'") {
-            if let Some(href) = extract_href(tag_original) {
+        if (tag_lower.contains("rel=\"manifest\"") || tag_lower.contains("rel='manifest'"))
+            && let Some(href) = extract_href(tag_original) {
                 let manifest_url = resolve_url(href, page_url);
                 return fetch_largest_manifest_icon(&manifest_url);
             }
-        }
 
         pos = end + 1;
     }
@@ -209,8 +208,8 @@ fn parse_best_icon_link(html: &str, page_url: &str) -> Option<String> {
         let is_apple = tag_lower.contains("rel=\"apple-touch-icon\"")
             || tag_lower.contains("rel='apple-touch-icon'");
 
-        if is_icon || is_apple {
-            if let Some(href) = extract_href(tag_original) {
+        if (is_icon || is_apple)
+            && let Some(href) = extract_href(tag_original) {
                 let size = extract_attr(tag_original, "sizes")
                     .and_then(parse_icon_size)
                     // apple-touch-icon defaults to 180 when no sizes attribute
@@ -220,7 +219,6 @@ fn parse_best_icon_link(html: &str, page_url: &str) -> Option<String> {
                     best = Some((size, resolve_url(href, page_url)));
                 }
             }
-        }
 
         pos = end + 1;
     }

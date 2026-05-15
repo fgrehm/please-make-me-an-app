@@ -251,15 +251,14 @@ pub fn uninstall(name: &str) -> Result<()> {
 ///   Exec=/path/to/binary open /path/to/config.yaml
 fn parse_exec_config(desktop_contents: &str) -> Option<String> {
     for line in desktop_contents.lines() {
-        if let Some(exec) = line.strip_prefix("Exec=") {
-            if let Some(after_open) = exec.split_once(" open ") {
+        if let Some(exec) = line.strip_prefix("Exec=")
+            && let Some(after_open) = exec.split_once(" open ") {
                 let rest = after_open.1;
                 let rest = rest.split(" >>").next().unwrap_or(rest);
                 let rest = rest.split(" --profile").next().unwrap_or(rest);
                 let rest = rest.split(" --url").next().unwrap_or(rest);
                 return Some(rest.to_string());
             }
-        }
     }
     None
 }

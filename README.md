@@ -66,6 +66,10 @@ please-make-me-an-app open config.yaml --profile work
 # Open with debug logging (prints UA, config, data dir to stderr)
 please-make-me-an-app open config.yaml --debug
 
+# Open an ad-hoc URL without a config file (ephemeral data dir)
+please-make-me-an-app open-url https://example.com
+please-make-me-an-app open-url https://example.com --backend brave
+
 # Install to your desktop launcher
 please-make-me-an-app install config.yaml
 

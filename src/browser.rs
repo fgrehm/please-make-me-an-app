@@ -20,11 +20,10 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths).find_map(|dir| {
             let full = dir.join(name);
-            if let Ok(meta) = full.metadata() {
-                if meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
+            if let Ok(meta) = full.metadata()
+                && meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
                     return Some(full);
                 }
-            }
             None
         })
     })
@@ -88,11 +87,10 @@ pub fn run(config: &AppConfig, data_dir: &Path, url: &str, config_dir: &Path) ->
         .status()
         .with_context(|| format!("Failed to launch {}", binary.display()))?;
 
-    if !status.success() {
-        if let Some(code) = status.code() {
+    if !status.success()
+        && let Some(code) = status.code() {
             bail!("{} exited with status {}", binary.display(), code);
         }
-    }
 
     Ok(())
 }
