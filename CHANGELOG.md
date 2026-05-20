@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-19
+
 ### Added
 
 - **`open-url` subcommand**: open any URL in a one-off window without a config file; uses an ephemeral data directory discarded on exit, skips single-instance locking, and accepts `--backend webview|brave|chrome|chromium`. Global `defaults.yaml` settings still apply.
