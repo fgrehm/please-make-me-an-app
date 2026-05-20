@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated to the Rust 2024 edition
 - Upgraded dependencies: wry 0.54 -> 0.55, tao 0.34 -> 0.35, tray-icon 0.21 -> 0.24, plus clap/libc/notify-rust patch bumps. tao 0.35 adds a transitive dependency on `libdbus-1`.
 
+### Security
+
+- Bumped `rustls-webpki` 0.103.10 -> 0.103.13, picking up fixes for a CRL parsing panic (GHSA-82j2-j2ch-gfr8) and name constraint enforcement (GHSA-965h-392x-2mh5)
+
 ## [0.3.2] - 2026-04-07
 
 ### Fixed
