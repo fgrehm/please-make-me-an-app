@@ -11,8 +11,9 @@ pub fn project_dirs() -> Result<ProjectDirs> {
     ProjectDirs::from("", "", APP_NAME).context("Failed to determine XDG directories")
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
+#[clap(rename_all = "lowercase")]
 pub enum Backend {
     #[default]
     Webview,
@@ -195,7 +196,7 @@ pub fn load(path: &Path) -> Result<AppConfig> {
     let app_yaml = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-    let config: AppConfig = match load_global_defaults()? {
+    let mut config: AppConfig = match load_global_defaults()? {
         Some(defaults_yaml) => {
             let base: serde_yaml_ng::Value = serde_yaml_ng::from_str(&defaults_yaml)
                 .context("Failed to parse global defaults file")?;
@@ -209,9 +210,100 @@ pub fn load(path: &Path) -> Result<AppConfig> {
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?,
     };
 
+    config.url = normalize_url(&config.url);
     validate(&config)?;
 
     Ok(config)
+}
+
+/// Prepend `https://` to a URL that has no scheme.
+///
+/// A URL is considered to already have a scheme if it contains `://`, which
+/// leaves `http://`, `https://`, and custom schemes untouched while upgrading
+/// bare hosts like `example.com` to `https://example.com`.
+fn normalize_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    }
+}
+
+/// Build a config for an ad-hoc URL with no on-disk config file.
+///
+/// Name and window title are derived from the URL's host. Global defaults
+/// (defaults.yaml) are merged in so user-wide settings (adblock, clipboard,
+/// notifications) still apply.
+pub fn ad_hoc(url: &str, backend: Backend) -> Result<(AppConfig, String)> {
+    let url = normalize_url(url);
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        bail!("URL '{}' must start with http:// or https://", url);
+    }
+    let host = url_host(&url).unwrap_or("ad-hoc");
+    let name = sanitize_name(host);
+    let title = host.to_string();
+
+    let synthesized = format!(
+        "name: {}\nurl: {}\nbackend: {}\nwindow:\n  title: {}\n",
+        name,
+        url,
+        backend.display_name(),
+        // YAML scalar: quote in case the host contains a colon (e.g. localhost:3000).
+        serde_yaml_ng::to_string(&title)?.trim()
+    );
+
+    let config: AppConfig = match load_global_defaults()? {
+        Some(defaults_yaml) => {
+            let base: serde_yaml_ng::Value = serde_yaml_ng::from_str(&defaults_yaml)
+                .context("Failed to parse global defaults file")?;
+            let over: serde_yaml_ng::Value = serde_yaml_ng::from_str(&synthesized)
+                .context("Failed to parse synthesized ad-hoc config")?;
+            let merged = merge_yaml(base, over);
+            serde_yaml_ng::from_value(merged)
+                .context("Failed to materialize ad-hoc config after defaults merge")?
+        }
+        None => serde_yaml_ng::from_str(&synthesized)
+            .context("Failed to parse synthesized ad-hoc config")?,
+    };
+
+    validate(&config)?;
+    Ok((config, name))
+}
+
+/// Extract the host portion of an http(s) URL.
+fn url_host(url: &str) -> Option<&str> {
+    let rest = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://"))?;
+    let host_with_port = rest.split('/').next()?;
+    let host = host_with_port.split('?').next()?.split('#').next()?;
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+/// Reduce a host string to the alphanumeric/hyphen/underscore set required by
+/// `is_valid_name`. Dots and colons become hyphens; runs of separators collapse
+/// so the result never has consecutive hyphens.
+fn sanitize_name(host: &str) -> String {
+    let mut out = String::with_capacity(host.len());
+    let mut last_was_sep = false;
+    for c in host.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            out.push(c.to_ascii_lowercase());
+            last_was_sep = false;
+        } else if !last_was_sep {
+            out.push('-');
+            last_was_sep = true;
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "ad-hoc".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Load global defaults from $XDG_CONFIG_HOME/please-make-me-an-app/defaults.yaml.
@@ -549,6 +641,61 @@ mod tests {
         let yaml = "name: test\nurl: https://example.com\nbackend: firefox\n";
         let result: Result<AppConfig, _> = serde_yaml_ng::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    // -- ad-hoc tests --
+
+    #[test]
+    fn url_host_strips_scheme_and_path() {
+        assert_eq!(url_host("https://web.whatsapp.com/send"), Some("web.whatsapp.com"));
+        assert_eq!(url_host("http://localhost:3000"), Some("localhost:3000"));
+        assert_eq!(url_host("https://example.com?q=1#x"), Some("example.com"));
+        assert_eq!(url_host("ftp://nope"), None);
+    }
+
+    #[test]
+    fn sanitize_name_collapses_separators() {
+        assert_eq!(sanitize_name("web.whatsapp.com"), "web-whatsapp-com");
+        assert_eq!(sanitize_name("localhost:3000"), "localhost-3000");
+        assert_eq!(sanitize_name("a..b"), "a-b");
+        assert_eq!(sanitize_name("...."), "ad-hoc");
+        assert_eq!(sanitize_name("Foo.Bar"), "foo-bar");
+    }
+
+    #[test]
+    fn ad_hoc_builds_valid_config() {
+        let (cfg, name) = ad_hoc("https://example.com/path", Backend::Webview).unwrap();
+        assert_eq!(name, "example-com");
+        assert_eq!(cfg.name, "example-com");
+        assert_eq!(cfg.url, "https://example.com/path");
+        assert_eq!(cfg.backend, Backend::Webview);
+        assert_eq!(cfg.window.title, "example.com");
+    }
+
+    #[test]
+    fn ad_hoc_rejects_non_http_scheme() {
+        assert!(ad_hoc("ftp://example.com", Backend::Webview).is_err());
+    }
+
+    #[test]
+    fn ad_hoc_prepends_https_for_schemeless_url() {
+        let (cfg, name) = ad_hoc("example.com/path", Backend::Webview).unwrap();
+        assert_eq!(cfg.url, "https://example.com/path");
+        assert_eq!(name, "example-com");
+        assert_eq!(cfg.window.title, "example.com");
+    }
+
+    #[test]
+    fn normalize_url_prepends_https_when_schemeless() {
+        assert_eq!(normalize_url("example.com"), "https://example.com");
+        assert_eq!(normalize_url("  example.com  "), "https://example.com");
+    }
+
+    #[test]
+    fn normalize_url_leaves_existing_scheme() {
+        assert_eq!(normalize_url("http://example.com"), "http://example.com");
+        assert_eq!(normalize_url("https://example.com"), "https://example.com");
+        assert_eq!(normalize_url("ftp://example.com"), "ftp://example.com");
     }
 
     #[test]

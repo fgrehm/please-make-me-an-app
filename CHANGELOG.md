@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-19
+
+### Added
+
+- **`open-url` subcommand**: open any URL in a one-off window without a config file; uses an ephemeral data directory discarded on exit, skips single-instance locking, and accepts `--backend webview|brave|chrome|chromium`. Global `defaults.yaml` settings still apply.
+
+### Changed
+
+- URLs without a scheme now assume `https://`, for both config-file `url` fields and the `open-url` subcommand (`example.com` -> `https://example.com`)
+- Migrated to the Rust 2024 edition
+- Upgraded dependencies: wry 0.54 -> 0.55, tao 0.34 -> 0.35, tray-icon 0.21 -> 0.24, plus clap/libc/notify-rust patch bumps. tao 0.35 adds a transitive dependency on `libdbus-1`.
+
+### Security
+
+- Bumped `rustls-webpki` 0.103.10 -> 0.103.13, picking up fixes for a CRL parsing panic (GHSA-82j2-j2ch-gfr8) and name constraint enforcement (GHSA-965h-392x-2mh5)
+
 ## [0.3.2] - 2026-04-07
 
 ### Fixed

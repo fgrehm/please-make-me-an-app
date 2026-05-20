@@ -254,14 +254,13 @@ pub fn run(
         // Instead, open in the system browser (which has password managers, WebAuthn, etc.).
         if url.starts_with("http://") || url.starts_with("https://") {
             // Silently deny popups from ad/tracker domains when adblock is enabled.
-            if let Some(ref domains) = blocked_domains {
-                if adblock::is_blocked(domains, &url) {
+            if let Some(ref domains) = blocked_domains
+                && adblock::is_blocked(domains, &url) {
                     if popup_debug {
                         eprintln!("[debug] popup blocked (adblock): {}", url);
                     }
                     return NewWindowResponse::Deny;
                 }
-            }
             let target = unwrap_google_redirect(&url).unwrap_or(url);
             if popup_debug {
                 eprintln!("[debug] popup -> browser: {}", target);
@@ -306,11 +305,10 @@ pub fn run(
     let icon_rgba = icon_path.as_deref().and_then(icon::load_rgba);
 
     // Window icon for alt-tab / taskbar
-    if let Some((ref rgba, width, height)) = icon_rgba {
-        if let Ok(win_icon) = tao::window::Icon::from_rgba(rgba.clone(), width, height) {
+    if let Some((ref rgba, width, height)) = icon_rgba
+        && let Ok(win_icon) = tao::window::Icon::from_rgba(rgba.clone(), width, height) {
             window.set_window_icon(Some(win_icon));
         }
-    }
 
     // System tray
     let tray_state = if config.tray.enabled {
@@ -422,9 +420,9 @@ pub fn run(
             let _ = webview.evaluate_script("location.reload(true)");
         }
 
-        if show_url_requested.swap(false, Ordering::Acquire) {
-            if let Ok(url) = webview.url() {
-                if let Some(new_url) = show_url_dialog(
+        if show_url_requested.swap(false, Ordering::Acquire)
+            && let Ok(url) = webview.url()
+                && let Some(new_url) = show_url_dialog(
                     &window,
                     &url,
                     &url_dialog_app_domain,
@@ -433,8 +431,6 @@ pub fn run(
                 ) {
                     let _ = webview.load_url(&new_url);
                 }
-            }
-        }
 
         if enter_fullscreen_requested.swap(false, Ordering::Acquire) {
             is_fullscreen = true;
@@ -682,15 +678,14 @@ fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) =
+        if bytes[i] == b'%' && i + 2 < bytes.len()
+            && let Ok(byte) =
                 u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
             {
                 result.push(byte);
                 i += 3;
                 continue;
             }
-        }
         result.push(bytes[i]);
         i += 1;
     }
