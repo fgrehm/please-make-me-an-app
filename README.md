@@ -118,7 +118,7 @@ Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | required | App identifier (letters, numbers, hyphens, underscores) |
-| `url` | string | required | URL to open (must start with http:// or https://) |
+| `url` | string | required | URL to open (`https://` is assumed if no scheme is given) |
 | `backend` | string | `"webview"` | Backend to use: `webview`, `brave`, `chrome`, or `chromium` |
 | `window.title` | string | `"please-make-me-an-app"` | Window title |
 | `window.width` | int | `1200` | Window width in pixels |

@@ -373,7 +373,7 @@ fn main() -> Result<()> {
             let profile_name = config::DEFAULT_PROFILE.to_string();
 
             if debug {
-                eprintln!("[debug] ad-hoc url: {}", url);
+                eprintln!("[debug] ad-hoc url: {}", app_config.url);
                 eprintln!("[debug] derived name: {}", derived_name);
                 eprintln!("[debug] backend: {}", app_config.backend.display_name());
                 eprintln!("[debug] data_dir (ephemeral): {}", data_dir.display());
@@ -382,11 +382,19 @@ fn main() -> Result<()> {
             // No config file on disk; pass the current dir for relative-path resolution.
             // Ad-hoc configs don't reference inject css_file/js_file, so this is a no-op.
             let config_dir = Path::new(".");
+            let effective_url = app_config.url.clone();
             if app_config.backend.is_browser() {
                 browser::warn_ignored_options(&app_config);
-                browser::run(&app_config, &data_dir, &url, config_dir)?;
+                browser::run(&app_config, &data_dir, &effective_url, config_dir)?;
             } else {
-                app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &url)?;
+                app::run(
+                    &app_config,
+                    &profile_name,
+                    &data_dir,
+                    config_dir,
+                    debug,
+                    &effective_url,
+                )?;
             }
             // tmp drops here and removes the ephemeral data dir.
             drop(tmp);

@@ -196,7 +196,7 @@ pub fn load(path: &Path) -> Result<AppConfig> {
     let app_yaml = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-    let config: AppConfig = match load_global_defaults()? {
+    let mut config: AppConfig = match load_global_defaults()? {
         Some(defaults_yaml) => {
             let base: serde_yaml_ng::Value = serde_yaml_ng::from_str(&defaults_yaml)
                 .context("Failed to parse global defaults file")?;
@@ -210,9 +210,24 @@ pub fn load(path: &Path) -> Result<AppConfig> {
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?,
     };
 
+    config.url = normalize_url(&config.url);
     validate(&config)?;
 
     Ok(config)
+}
+
+/// Prepend `https://` to a URL that has no scheme.
+///
+/// A URL is considered to already have a scheme if it contains `://`, which
+/// leaves `http://`, `https://`, and custom schemes untouched while upgrading
+/// bare hosts like `example.com` to `https://example.com`.
+fn normalize_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    }
 }
 
 /// Build a config for an ad-hoc URL with no on-disk config file.
@@ -221,10 +236,11 @@ pub fn load(path: &Path) -> Result<AppConfig> {
 /// (defaults.yaml) are merged in so user-wide settings (adblock, clipboard,
 /// notifications) still apply.
 pub fn ad_hoc(url: &str, backend: Backend) -> Result<(AppConfig, String)> {
+    let url = normalize_url(url);
     if !url.starts_with("http://") && !url.starts_with("https://") {
         bail!("URL '{}' must start with http:// or https://", url);
     }
-    let host = url_host(url).unwrap_or("ad-hoc");
+    let host = url_host(&url).unwrap_or("ad-hoc");
     let name = sanitize_name(host);
     let title = host.to_string();
 
@@ -657,8 +673,29 @@ mod tests {
     }
 
     #[test]
-    fn ad_hoc_rejects_non_http_url() {
-        assert!(ad_hoc("javascript:alert(1)", Backend::Webview).is_err());
+    fn ad_hoc_rejects_non_http_scheme() {
+        assert!(ad_hoc("ftp://example.com", Backend::Webview).is_err());
+    }
+
+    #[test]
+    fn ad_hoc_prepends_https_for_schemeless_url() {
+        let (cfg, name) = ad_hoc("example.com/path", Backend::Webview).unwrap();
+        assert_eq!(cfg.url, "https://example.com/path");
+        assert_eq!(name, "example-com");
+        assert_eq!(cfg.window.title, "example.com");
+    }
+
+    #[test]
+    fn normalize_url_prepends_https_when_schemeless() {
+        assert_eq!(normalize_url("example.com"), "https://example.com");
+        assert_eq!(normalize_url("  example.com  "), "https://example.com");
+    }
+
+    #[test]
+    fn normalize_url_leaves_existing_scheme() {
+        assert_eq!(normalize_url("http://example.com"), "http://example.com");
+        assert_eq!(normalize_url("https://example.com"), "https://example.com");
+        assert_eq!(normalize_url("ftp://example.com"), "ftp://example.com");
     }
 
     #[test]
