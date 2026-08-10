@@ -40,10 +40,14 @@ It uses your system's WebKitGTK instead of shipping its own browser engine, so t
 
 ### Requirements
 
-Linux only for now (Debian/Ubuntu). Sorry, macOS/Windows folks 🙈
+Linux only for now. Sorry, macOS/Windows folks 🙈
 
 ```sh
-sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libxdo3 libayatana-appindicator3-1
+# Debian/Ubuntu
+sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
+
+# Arch / Omarchy
+sudo pacman -S webkit2gtk-4.1 gtk3 libayatana-appindicator
 ```
 
 ### Install
@@ -111,7 +115,7 @@ See `examples/` for more configs (Gmail, Pomofocus, Claude).
 
 ## What else it does
 
-Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/Image at the JS level). Web notifications get forwarded to your desktop via libnotify. There's an optional system tray icon with minimize-to-tray. The `install` command fetches the site's favicon and generates a `.desktop` file. Off-domain links open in your default browser. You can also set up a global `defaults.yaml` to share window size, user agent, and inject rules across all your apps.
+Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/Image at the JS level). Web notifications get forwarded to your desktop via libnotify. There's an optional system tray icon with minimize-to-tray. The `install` command fetches the site's favicon and generates a `.desktop` file; `open` uses that cached favicon for the window and tray, falling back to a placeholder icon if the app was never installed (see [docs/known-limitations.md](docs/known-limitations.md)). Off-domain links open in your default browser. You can also set up a global `defaults.yaml` to share window size, user agent, and inject rules across all your apps.
 
 ## Config reference
 
@@ -198,7 +202,15 @@ See [docs/known-limitations.md](docs/known-limitations.md) for details.
 
 ## Building
 
-Requires Rust and WebKitGTK build dependencies (see `.devcontainer/`).
+Requires Rust and WebKitGTK build dependencies:
+
+```sh
+# Debian/Ubuntu (also what .devcontainer/ uses)
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+
+# Arch / Omarchy
+sudo pacman -S webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg pkgconf
+```
 
 ```sh
 cargo build --release

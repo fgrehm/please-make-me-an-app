@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dropped the `libxdo` runtime dependency** on Linux. `tray-icon` is now built with `default-features = false, features = ["gtk"]`, which disables `muda`'s optional `libxdo` feature. That feature only powered the predefined Copy/Cut/Paste/SelectAll tray menu items, which this app never used (the tray menu has only Show/Hide and Quit). This removes `libxdo.so.3`/`libxdo.so.4` from the binary's link line entirely, fixing a cross-distro breakage: release binaries built on Ubuntu linked `libxdo.so.3`, which Arch (rolling, `libxdo.so.4`) does not ship. Arch users no longer need any `xdo`/`xdotool` package, and Debian/Ubuntu users no longer need `libxdo3`.
+- Upgraded dependencies: wry 0.55 -> 0.56, tao 0.35 -> 0.36, tray-icon 0.24.0 -> 0.24.2, plus patch bumps to clap, notify-rust, serde, serde_json, ureq, libc, and anyhow. tao 0.36 ships Wayland window-decoration fixes (title bar buttons, title changes, SSD/CSD handling) and a Linux thread-safety fix for `set_min_inner_size`/`set_fullscreen`, both relevant on compositors like Hyprland.
+
 ## [0.4.0] - 2026-05-19
 
 ### Added

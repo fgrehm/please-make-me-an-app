@@ -73,7 +73,7 @@ src/
   - `crib exec -- cargo clippy`
   - `crib exec -- cargo build --release`
 - If the container is not running, start it with `crib up`.
-- The host machine needs runtime libraries installed: `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libxdo3`, `libayatana-appindicator3-1`.
+- The host machine needs runtime libraries installed. See the Requirements section in README.md for the per-distro package names (Debian/Ubuntu `apt`, Arch `pacman`).
 - The binary in `target/debug/` or `target/release/` is accessible from the host via the shared workspace mount.
 - No UI testing is possible inside the container (no display server).
 
