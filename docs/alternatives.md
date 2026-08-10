@@ -95,6 +95,17 @@ System76's take for their COSMIC desktop.
 - **License:** GPL
 - **Differences from us:** Tied to COSMIC desktop environment. Very early.
 
+### Omarchy web apps
+
+Built-in web-app flow shipped with Omarchy (a Hyprland-based Arch Linux setup).
+
+- **Status:** Active, part of Omarchy's default scripts
+- **Engine:** Default browser in `--app` mode (Chromium/Brave/Chrome/Edge/etc.)
+- **App size:** Tiny (shell scripts + .desktop entries)
+- **License:** Omarchy's own
+- **How it works:** `omarchy-webapp-install <name> <url> <icon>` creates a `.desktop` entry whose `Exec=` runs `omarchy-launch-webapp <url>`, which resolves the default browser via `xdg-settings` and launches it with `--app=<url>` (via `uwsm-app`). Icons are fetched from Google's favicon service. Optional scheme handlers (mailto, zoommtg) and custom exec. Integrated into the Omarchy app menu (Install/Remove > Web App) and ships a preinstalled set (WhatsApp, ChatGPT, YouTube, GitHub, Discord, Zoom, and more).
+- **Differences from us:** Browser `--app` mode only, no system webview. No profile isolation (apps share the browser's default session), no CSS/JS injection, no ad blocking, no system tray, no notification forwarding, no single-instance enforcement, no window size/title config. please-make-me-an-app's browser backend overlaps with it (both Chromium `--app`, pmma adding `--user-data-dir` isolation); the webview backend is something Omarchy has no equivalent of. pmma apps do show up in Omarchy's app launcher (valid `.desktop` entries) but not in Omarchy's "Remove > Web App" flow, which greps `Exec=` for `omarchy-launch-webapp`.
+
 ### Browser-native approaches
 
 #### Chrome/Edge PWA (`--app=URL`)

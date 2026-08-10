@@ -28,6 +28,10 @@ Where they fall short:
 
 If any of that bothers you, read on 🚀
 
+## On Omarchy
+
+Omarchy ships its own built-in web-app flow (`omarchy-webapp-install` / `omarchy-launch-webapp`) that wraps sites in your default browser's `--app` mode. If all you want is "site in its own window with an icon," that's enough and already in your app menu. please-make-me-an-app adds what Omarchy's flow lacks: profile isolation, CSS/JS injection, ad blocking, system tray, notification forwarding, single-instance enforcement, and a system-WebKitGTK webview backend (no per-app Chromium process). See [docs/alternatives.md](docs/alternatives.md) for the full comparison. pmma apps install as normal `.desktop` entries and show up in the Omarchy launcher alongside the built-in ones.
+
 ## What makes it different
 
 There's no build step. Tools like Pake compile a binary per app. Here, the config *is* the app. Edit the YAML and re-run. Each profile gets its own cookies, storage, and cache, so you can run two Gmail accounts side by side without them leaking into each other.
