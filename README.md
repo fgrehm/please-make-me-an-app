@@ -28,6 +28,10 @@ Where they fall short:
 
 If any of that bothers you, read on 🚀
 
+## On Omarchy
+
+Omarchy ships its own built-in web-app flow (`omarchy-webapp-install` / `omarchy-launch-webapp`) that wraps sites in your default browser's `--app` mode. If all you want is "site in its own window with an icon," that's enough and already in your app menu. please-make-me-an-app adds what Omarchy's flow lacks: profile isolation, CSS/JS injection, ad blocking, system tray, notification forwarding, single-instance enforcement, and a system-WebKitGTK webview backend (no per-app Chromium process). See [docs/alternatives.md](docs/alternatives.md) for the full comparison. pmma apps install as normal `.desktop` entries and show up in the Omarchy launcher alongside the built-in ones.
+
 ## What makes it different
 
 There's no build step. Tools like Pake compile a binary per app. Here, the config *is* the app. Edit the YAML and re-run. Each profile gets its own cookies, storage, and cache, so you can run two Gmail accounts side by side without them leaking into each other.
@@ -40,10 +44,14 @@ It uses your system's WebKitGTK instead of shipping its own browser engine, so t
 
 ### Requirements
 
-Linux only for now (Debian/Ubuntu). Sorry, macOS/Windows folks 🙈
+Linux only for now. Sorry, macOS/Windows folks 🙈
 
 ```sh
-sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libxdo3 libayatana-appindicator3-1
+# Debian/Ubuntu
+sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
+
+# Arch / Omarchy
+sudo pacman -S webkit2gtk-4.1 gtk3 libayatana-appindicator
 ```
 
 ### Install
@@ -111,7 +119,7 @@ See `examples/` for more configs (Gmail, Pomofocus, Claude).
 
 ## What else it does
 
-Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/Image at the JS level). Web notifications get forwarded to your desktop via libnotify. There's an optional system tray icon with minimize-to-tray. The `install` command fetches the site's favicon and generates a `.desktop` file. Off-domain links open in your default browser. You can also set up a global `defaults.yaml` to share window size, user agent, and inject rules across all your apps.
+Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/Image at the JS level). Web notifications get forwarded to your desktop via libnotify. There's an optional system tray icon with minimize-to-tray. The `install` command fetches the site's favicon and generates a `.desktop` file; `open` uses that cached favicon for the window and tray, falling back to a placeholder icon if the app was never installed (see [docs/known-limitations.md](docs/known-limitations.md)). Off-domain links open in your default browser. You can also set up a global `defaults.yaml` to share window size, user agent, and inject rules across all your apps.
 
 ## Config reference
 
@@ -198,7 +206,15 @@ See [docs/known-limitations.md](docs/known-limitations.md) for details.
 
 ## Building
 
-Requires Rust and WebKitGTK build dependencies (see `.devcontainer/`).
+Requires Rust and WebKitGTK build dependencies:
+
+```sh
+# Debian/Ubuntu (also what .devcontainer/ uses)
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+
+# Arch / Omarchy
+sudo pacman -S webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg pkgconf
+```
 
 ```sh
 cargo build --release

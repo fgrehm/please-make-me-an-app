@@ -68,6 +68,10 @@ Without an explicit minimum window size, KDE Plasma may disable the maximize and
 
 **How it's handled:** The window is created with `with_min_inner_size(200x200)`, which tells the compositor the window is freely resizable. This enables maximize/minimize on KDE Plasma and other window managers.
 
+## Tray and Window Icon Before Install
+
+The favicon used for the window icon and the system tray is only fetched and cached when you run `install`. If you `open` an app that has never been installed, there is no cached icon, so both fall back to a small default placeholder (a blue square). Run `install <config>` once to fetch the site favicon; subsequent `open` calls pick it up automatically.
+
 ## Always on Top
 
 tao's `with_always_on_top()` and `set_always_on_top()` do not work reliably on KDE Plasma (Wayland). The window hint is either ignored by KWin or not propagated correctly through GTK to the compositor.
