@@ -47,7 +47,7 @@ For full content blocking, WebKitGTK's native `WebKitUserContentFilter` API woul
 Several features signal the event loop via `AtomicBool` flags or separate channels that are not connected to tao's event system:
 
 - Tray menu events (Quit, Show/Hide) go through `tray_icon::menu::MenuEvent::receiver()`
-- Keyboard shortcuts (Ctrl+W, Ctrl+Q) are set from wry's IPC callback thread
+- Keyboard shortcuts (Ctrl+W, Ctrl+Q, Ctrl+Plus/Minus/0, F12) are set from wry's IPC callback thread
 - The raise socket listener signals from a background thread
 
 With `ControlFlow::Wait`, the event loop blocks until a tao window event arrives, so none of these would be processed in a timely manner.
@@ -87,6 +87,45 @@ File drag-and-drop (e.g., dropping a file into WhatsApp Web to upload) may not w
 **Tracking:** [wry Issue #1256](https://github.com/tauri-apps/wry/issues/1256)
 
 **Workaround:** Use X11 instead of Wayland, or use the file picker button in the web app.
+
+## Emoji Rendering (WhatsApp Web)
+
+Some sites (notably WhatsApp Web) render emoji using a CSS sprite sheet rather than the system emoji font. Each emoji is an `<img>` whose `src` is a 1x1 transparent GIF spacer, and the actual glyph is painted via `background-position` into a large background-image sprite sheet loaded from the site's CDN (e.g. `class="emoji apple"` with `style="background-position: -20px -40px"`).
+
+On WebKitGTK this background-image sprite sometimes fails to paint, so emojis render blank or only show up after a manual repaint (scroll, tab switch, or a CSS tweak). The failure is intermittent and not deterministic.
+
+This is a WebKitGTK rendering/decoding quirk with large CSS sprite sheets, not a please-make-me-an-app issue:
+
+- The ad blocker does not intercept CSS `background-image` or `@import` (a documented limitation), so the sprite sheet is not blocked.
+- WhatsApp's static CDN hosts (`static.whatsapp.net`, `web.whatsapp.com`) are reachable and not in the blocklist.
+- No injected script touches `<img>`, `background-image`, or sprite loading.
+
+**Workaround:** Trigger a repaint (scroll the chat, switch tabs away and back, or toggle DevTools). Forcing the OS emoji font (Noto Color Emoji) instead of WhatsApp's sprite sheet is possible via `inject.css` but is invasive and out of scope; it would also break WhatsApp's emoji styling. If you hit this often and want a site-specific CSS workaround, add it to the app's `inject.css`.
+
+## Audio Playback (WhatsApp Web voice messages)
+
+WhatsApp Web voice messages may not play in the webview backend. Pressing play on a voice message produces no sound, and the in-app voice message player UI may break or reset instead of progressing.
+
+**What we confirmed (Arch / Omarchy, WebKitGTK 2.52):** The GStreamer media pipeline is built correctly when play is pressed (`GstPlayBin3` -> `uridecodebin3` -> `decodebin3`, for a `blob-media-player` source), Opus decoders are registered, and the `pulsesink`/`autoaudiosink` audio sink reaches `READY` and works for other audio. The failure is downstream of decoding: **every audio buffer the sink receives is flagged `GAP | DROPPABLE`** (`GST_BUFFER_FLAG_GAP | GST_BUFFER_FLAG_DROPPABLE`, `flags 0x1800`), so `audiobasesink` logs `Received GAP or ignoring audio for trickplay. Dropping contents` and discards every buffer. The pipeline runs but no samples ever reach the speakers.
+
+`GAP` buffers out of an Opus-in-Ogg decode typically indicate a timestamp/sync failure in the decode chain. The initial hypothesis was a missing `opusparse` element (provided by `gst-plugins-bad`), but installing `gst-plugins-bad` did **not** fix it, so the root cause is still under investigation. Possible remaining causes: a WebKitGTK 2.52 regression in Opus/MediaSource handling, or WhatsApp using MediaSource Extensions (MSE) rather than a plain `<audio src=blob>` element for voice messages.
+
+This did not happen on Ubuntu/Debian in earlier testing, which is consistent with either a distro GStreamer-plugin difference or a WebKitGTK version difference (Ubuntu ships older WebKitGTK).
+
+**No fix yet.** To diagnose further, capture a GStreamer log after any plugin changes and compare whether the buffers are still flagged `GAP | DROPPABLE` or whether the failure mode changed:
+
+```sh
+GST_DEBUG=*:5 GST_DEBUG_FILE=/tmp/wa-gst.log \
+  please-make-me-an-app open ~/.config/please-make-me-an-app/apps/whatsapp.yaml --debug
+# press play on a voice message, then quit, then:
+grep -iE 'opusparse|opusdec|avdec_opus|oggdemux|ERROR|WARNING|Failed|Could not|GAP|not-linked|negotiate' /tmp/wa-gst.log \
+  | grep -viE 'GST_REGISTRY|REFCOUNTING|gstregistry|frei0r|/dev/v4l2|gst_plugin_ext_dep|warning-message' \
+  | sort -u | head -80
+```
+
+Also check the devtools console (F12 with `--debug`) while pressing play: WhatsApp's audio player errors tend to come from its service worker, which the `--debug` console capture does not forward (see the console capture limitation in the changelog), so they only show in the devtools console itself.
+
+**Workaround:** Use a browser backend for WhatsApp if you need voice messages. Set `backend: brave` (or `chrome`/`chromium`) in `whatsapp.yaml`; the browser handles Opus/MSE playback natively. Note that browser mode does not support CSS/JS injection, ad blocking, system tray, or notification forwarding (see [Browser Mode Limitations](#browser-mode-limitations)).
 
 ## Cloudflare Turnstile Challenge
 

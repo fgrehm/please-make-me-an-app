@@ -121,6 +121,23 @@ See `examples/` for more configs (Gmail, Pomofocus, Claude).
 
 Ad and tracker blocking is built in (~3500 domain blocklist, patching fetch/XHR/Image at the JS level). Web notifications get forwarded to your desktop via libnotify. There's an optional system tray icon with minimize-to-tray. The `install` command fetches the site's favicon and generates a `.desktop` file; `open` uses that cached favicon for the window and tray, falling back to a placeholder icon if the app was never installed (see [docs/known-limitations.md](docs/known-limitations.md)). Off-domain links open in your default browser. You can also set up a global `defaults.yaml` to share window size, user agent, and inject rules across all your apps.
 
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+W` | Close window (hide to tray if `tray.minimize_to_tray` is set) |
+| `Ctrl+Q` | Quit the app |
+| `Ctrl+R` | Reload |
+| `Ctrl+Shift+R` | Hard reload (bypass cache) |
+| `Ctrl+L` | Show editable address bar for the current URL |
+| `Ctrl+Plus` / `Ctrl+=` | Zoom in |
+| `Ctrl+Minus` | Zoom out |
+| `Ctrl+0` | Reset zoom to 100% |
+| `Alt+Left` / `Alt+Right` | Go back / forward in history |
+| `F12` | Toggle WebKit web inspector (`--debug` only; opens docked, click detach for a separate window) |
+
+Zoom is re-applied after a full page reload or top-level navigation (WebKitGTK resets it to 100% otherwise).
+
 ## Config reference
 
 | Field | Type | Default | Description |

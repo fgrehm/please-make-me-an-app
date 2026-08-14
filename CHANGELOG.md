@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-14
+
+### Added
+
+- **Zoom shortcuts**: `Ctrl+Plus`/`Ctrl+=`, `Ctrl+Minus`, and `Ctrl+0` now change or reset the page zoom. wry's `with_hotkeys_zoom` is Windows-only, so zoom is implemented via the existing JS keyboard intercept plus `WebView::zoom()`. The chosen level is re-applied after a full reload or top-level navigation (WebKitGTK resets zoom to 100% otherwise).
+- **Devtools toggle**: `F12` opens/closes the WebKit web inspector. Enabled the `devtools` cargo feature (forwarded to `wry/devtools`) so the API compiles in release builds; the inspector is only wired onto the webview when `--debug` is passed. On Linux the inspector opens docked at the bottom of the webview by default; click its detach button to move it to a separate window (WebKitGTK remembers the choice per profile).
+- **Console and error capture**: when `--debug` is set, `console.{log,info,warn,error,debug,trace}` calls plus uncaught errors (`window.onerror`) and unhandled promise rejections are forwarded to the host via the existing `pmma-debug:` IPC channel and printed to stderr, so they land in `/tmp/pmma-<app>.log` via the `.desktop` launcher or on the terminal. Useful for diagnosing site issues.
+
+### Fixed
+
+- **Tray icon tooltip** showed `pmma-<app>` (the GTK `prgname` used for WM_CLASS matching) instead of the app's display title. `tray-icon`'s appindicator backend never sets the StatusNotifierItem `Title` and its `with_tooltip` is a no-op on Linux. We now call `app_indicator_set_title` directly via the unsafe `TrayIcon::app_indicator()` accessor so tray hosts (waybar, etc.) show the configured title on hover.
+
 ## [0.5.0] - 2026-08-11
 
 ### Changed
