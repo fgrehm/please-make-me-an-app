@@ -2159,6 +2159,7 @@ dependencies = [
  "directories",
  "gtk",
  "image",
+ "libappindicator",
  "libc",
  "notify-rust",
  "serde",

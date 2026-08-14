@@ -73,6 +73,15 @@ pub fn run(
         .with_url(url)
         .with_clipboard(config.clipboard);
 
+    // Console and error capture: when --debug is set, forward console.* calls
+    // and uncaught errors to the host via the existing `pmma-debug:` IPC channel
+    // (which eprintln!s them, so they land in /tmp/pmma-<app>.log via the .desktop
+    // launcher or on the terminal). Registered first so it can catch errors from
+    // the other init scripts below.
+    if debug {
+        builder = builder.with_initialization_script(console_capture_script());
+    }
+
     // WebKitGTK does not populate clipboardData.items with image data on paste
     // events, but the async Clipboard API (navigator.clipboard.read()) works.
     // This polyfill intercepts paste events, reads image data via the async API,
@@ -157,6 +166,17 @@ pub fn run(
     // because WebKitGTK's built-in fullscreen implementation is not wired up.
     builder = builder.with_initialization_script(fullscreen_polyfill_script());
 
+    // Enable the WebKit web inspector when --debug is passed so F12 (handled in
+    // keyboard_shortcut_script) can toggle it. On Linux, `open_devtools()` opens
+    // the inspector docked at the bottom of the webview; the user can click its
+    // detach button to move it to a separate window (WebKitGTK remembers the
+    // choice per profile). This also enables the right-click "Inspect" context
+    // menu item. In debug builds wry enables devtools automatically; this makes
+    // it available in release builds too.
+    if debug {
+        builder = builder.with_devtools(true);
+    }
+
     // Flags shared between the IPC handler and the event loop.
     // The IPC handler sets them; the event loop reads and resets them.
     let raise_requested = Arc::new(AtomicBool::new(false));
@@ -171,6 +191,18 @@ pub fn run(
     let show_url_requested = Arc::new(AtomicBool::new(false));
     let enter_fullscreen_requested = Arc::new(AtomicBool::new(false));
     let exit_fullscreen_requested = Arc::new(AtomicBool::new(false));
+    let zoom_in_requested = Arc::new(AtomicBool::new(false));
+    let zoom_out_requested = Arc::new(AtomicBool::new(false));
+    let zoom_reset_requested = Arc::new(AtomicBool::new(false));
+    let toggle_devtools_requested = Arc::new(AtomicBool::new(false));
+    // Signals the event loop to re-apply the stored zoom after a page load.
+    let zoom_needs_reapply = Arc::new(AtomicBool::new(false));
+    // Current zoom level, shared with the page-load handler so it can be
+    // re-applied after a full reload/navigation (WebKitGTK resets zoom to 1.0
+    // on a fresh page load). Stored as bit-cast u64 for lock-free atomic access.
+    let current_zoom = Arc::new(std::sync::atomic::AtomicU64::new(
+        (1.0f64).to_bits(),
+    ));
 
     {
         // Cloned into the IPC closure which must be 'static (outlives this function)
@@ -189,6 +221,10 @@ pub fn run(
         let ipc_show_url = show_url_requested.clone();
         let ipc_enter_fs = enter_fullscreen_requested.clone();
         let ipc_exit_fs = exit_fullscreen_requested.clone();
+        let ipc_zoom_in = zoom_in_requested.clone();
+        let ipc_zoom_out = zoom_out_requested.clone();
+        let ipc_zoom_reset = zoom_reset_requested.clone();
+        let ipc_toggle_devtools = toggle_devtools_requested.clone();
         let ipc_token_prefix = format!("{}:", ipc_token);
         builder = builder.with_ipc_handler(move |req: wry::http::Request<String>| {
             let body = req.body();
@@ -208,6 +244,10 @@ pub fn run(
                     "pmma-kbd:show-url" => ipc_show_url.store(true, Ordering::Release),
                     "pmma-fullscreen:enter" => ipc_enter_fs.store(true, Ordering::Release),
                     "pmma-fullscreen:exit" => ipc_exit_fs.store(true, Ordering::Release),
+                    "pmma-kbd:zoom-in" => ipc_zoom_in.store(true, Ordering::Release),
+                    "pmma-kbd:zoom-out" => ipc_zoom_out.store(true, Ordering::Release),
+                    "pmma-kbd:zoom-reset" => ipc_zoom_reset.store(true, Ordering::Release),
+                    "pmma-kbd:toggle-devtools" => ipc_toggle_devtools.store(true, Ordering::Release),
                     _ => {}
                 }
             } else if ipc_notifications {
@@ -220,6 +260,23 @@ pub fn run(
             }
         });
     }
+
+    // Re-apply the current zoom level whenever a new page starts loading.
+    // WebKitGTK resets the zoom to 1.0 on a full navigation/reload, so without
+    // this the user's chosen zoom is lost after Ctrl+R or a top-level navigation.
+    // (Same-document navigations preserve zoom.) The handler only signals; the
+    // actual `webview.zoom()` call happens in the event loop, which owns the
+    // webview handle and polls every 250ms.
+    let page_load_zoom = current_zoom.clone();
+    let page_load_reapply = zoom_needs_reapply.clone();
+    builder = builder.with_on_page_load_handler(move |event, _url| {
+        if let wry::PageLoadEvent::Started = event {
+            let zoom = f64::from_bits(page_load_zoom.load(std::sync::atomic::Ordering::Acquire));
+            if (zoom - 1.0).abs() > f64::EPSILON {
+                page_load_reapply.store(true, Ordering::Release);
+            }
+        }
+    });
 
     let app_domain = extract_domain(&config.url).unwrap_or("").to_string();
     let allowed = config.allowed_domains.clone();
@@ -440,6 +497,48 @@ pub fn run(
         if exit_fullscreen_requested.swap(false, Ordering::Acquire) {
             is_fullscreen = false;
             window.set_fullscreen(None);
+        }
+
+        // Zoom: Ctrl+Plus/Minus/Zero. wry's `with_hotkeys_zoom` is Windows-only,
+        // so zoom is implemented via the JS keyboard intercept + `webview.zoom()`.
+        // The level is stored as bit-cast u64 so the page-load handler can read it
+        // lock-free and signal re-apply after a navigation resets it to 1.0.
+        let zoom_in = zoom_in_requested.swap(false, Ordering::Acquire);
+        let zoom_out = zoom_out_requested.swap(false, Ordering::Acquire);
+        let zoom_reset = zoom_reset_requested.swap(false, Ordering::Acquire);
+        if zoom_in || zoom_out || zoom_reset {
+            let prev = f64::from_bits(current_zoom.load(Ordering::Acquire));
+            let next = if zoom_reset {
+                1.0
+            } else if zoom_in {
+                (prev + 0.1).clamp(0.25, 5.0)
+            } else {
+                (prev - 0.1).clamp(0.25, 5.0)
+            };
+            current_zoom.store(next.to_bits(), Ordering::Release);
+            let _ = webview.zoom(next);
+        }
+
+        // Re-apply zoom after a page load resets it to 1.0 (full navigation/reload).
+        if zoom_needs_reapply.swap(false, Ordering::Acquire) {
+            let zoom = f64::from_bits(current_zoom.load(Ordering::Acquire));
+            let _ = webview.zoom(zoom);
+        }
+
+        // F12 toggles the WebKit inspector (docked at the bottom on Linux; click
+        // its detach button for a separate window).
+        // Gated by the `devtools` cargo feature, which we enable unconditionally
+        // so the API compiles in release builds; `with_devtools(true)` is only
+        // set on the builder when `--debug` is passed.
+        if toggle_devtools_requested.swap(false, Ordering::Acquire) {
+            #[cfg(any(debug_assertions, feature = "devtools"))]
+            {
+                if webview.is_devtools_open() {
+                    webview.close_devtools();
+                } else {
+                    webview.open_devtools();
+                }
+            }
         }
 
         // Detect external fullscreen exits (compositor shortcut, WM, etc.).
@@ -742,6 +841,69 @@ fn clipboard_image_paste_polyfill() -> &'static str {
 })();"#
 }
 
+/// JS initialization script that forwards `console.*` calls and uncaught
+/// errors to the host via the `pmma-debug:` IPC channel. Only injected when
+/// `--debug` is set; the host prints these to stderr (so they appear in
+/// /tmp/pmma-<app>.log via the .desktop launcher, or on the terminal).
+///
+/// Runs in the capture phase and is registered before other init scripts so it
+/// can record errors they throw. Each forwarded line is prefixed with a level
+/// tag (`[console:warn]`, `[console:error]`, `[uncaught]`, etc.) to keep the
+/// output greppable. Object arguments are best-effort JSON-stringified;
+/// circular refs and non-serializable values fall back to String().
+///
+/// Limitation: this only captures the main document's console. Messages logged
+/// from Web Workers or service workers have their own `console` and are not
+/// forwarded (they still show in the devtools console, just not in the log).
+fn console_capture_script() -> &'static str {
+    r#"(function() {
+    var LOGS = [];
+    window.__pmma_logs = LOGS;
+    var MAX = 500;
+    var send = function(prefix, args) {
+        var parts = [];
+        for (var i = 0; i < args.length; i++) {
+            var a = args[i];
+            var s;
+            try {
+                if (a instanceof Error) {
+                    s = a + (a.stack ? '\n' + a.stack : '');
+                } else if (typeof a === 'object' && a !== null) {
+                    s = JSON.stringify(a);
+                } else {
+                    s = String(a);
+                }
+            } catch(e) { s = String(a); }
+            parts.push(s);
+        }
+        var line = prefix + ' ' + parts.join(' ');
+        LOGS.push(line);
+        if (LOGS.length > MAX) LOGS.shift();
+        try { window.ipc.postMessage('pmma-debug:' + line); } catch(e) {}
+    };
+    ['log','info','warn','error','debug','trace'].forEach(function(level) {
+        var orig = console[level];
+        console[level] = function() {
+            send('[console:' + level + ']', arguments);
+            if (orig) { try { orig.apply(console, arguments); } catch(e) {} }
+        };
+    });
+    window.addEventListener('error', function(e) {
+        var msg = e.message || '(no message)';
+        if (e.filename) msg += ' @ ' + e.filename + ':' + e.lineno + ':' + e.colno;
+        send('[uncaught]', [msg, e.error]);
+    }, true);
+    window.addEventListener('unhandledrejection', function(e) {
+        var reason = (e && e.reason) || e;
+        send('[unhandledrejection]', [reason]);
+    }, true);
+    // Startup marker so the user can confirm capture is wired up. Inspect the
+    // log tail or run with --debug to see it; also dump the buffer from devtools
+    // with `window.__pmma_logs`.
+    send('[pmma]', ['console capture active']);
+})();"#
+}
+
 /// JS initialization script that intercepts Ctrl+W and Ctrl+Q keyboard
 /// shortcuts and forwards them to the host via IPC. WebKitGTK consumes all
 /// key events for webview content, so tao never sees them. Using the capture
@@ -766,6 +928,22 @@ fn keyboard_shortcut_script() -> &'static str {
             e.preventDefault();
             e.stopPropagation();
             window.ipc.postMessage(t + ':pmma-kbd:show-url');
+        } else if (e.key === '+' || e.key === '=') {
+            // Ctrl+Plus (and the unshifted '=' on US layouts) zooms in.
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:zoom-in');
+        } else if (e.key === '-' || e.key === '_') {
+            // Ctrl+Minus zooms out ('_' is the shifted form, ignored since we
+            // require no shift, but kept for robustness on some layouts).
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:zoom-out');
+        } else if (e.key === '0') {
+            // Ctrl+Zero resets zoom to 100%.
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:zoom-reset');
         }
     } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
         if (e.key === 'r' || e.key === 'R') {
@@ -782,6 +960,13 @@ fn keyboard_shortcut_script() -> &'static str {
             e.preventDefault();
             e.stopPropagation();
             window.ipc.postMessage(t + ':pmma-kbd:go-forward');
+        }
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        // F12 toggles devtools (docked at the bottom on Linux; detach for a window).
+        if (e.key === 'F12') {
+            e.preventDefault();
+            e.stopPropagation();
+            window.ipc.postMessage(t + ':pmma-kbd:toggle-devtools');
         }
     }
 }, true);"#

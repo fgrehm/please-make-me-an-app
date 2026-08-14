@@ -23,6 +23,18 @@ tempfile = "3"
 tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
 ureq = "3"
 wry = "0.56"
+# Used directly to set the AppIndicator StatusNotifierItem `Title` (tray-icon does
+# not expose it). Must match the version tray-icon pulls in (0.9) so cargo
+# unifies to a single copy.
+libappindicator = "0.9"
+
+[features]
+# Forwards to wry's `devtools` feature so `WebView::open_devtools` and friends
+# compile in release builds. Enabled by default; the inspector is only wired onto
+# the webview when `--debug` is passed (see app.rs).
+devtools = ["wry/devtools"]
+
+default = ["devtools"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
