@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-17
+
+### Added
+
+- **Debugging knobs** (`debug.*` config fields): enable WebKit and GStreamer logging without wrapper scripts. `debug.webkit_channels` sets `WEBKIT_DEBUG`, `debug.gst_channels` sets `GST_DEBUG`, `debug.gst_log_file` sets `GST_DEBUG_FILE`, and `debug.gst_no_color` sets `GST_DEBUG_NO_COLOR`. The variables are applied to the process environment before the webview starts so WebKit's child processes inherit them. Useful for diagnosing media/network issues (e.g. silent voice notes, failed requests). Ignored with a warning in browser backend mode.
+
 ## [0.6.0] - 2026-08-14
 
 ### Added

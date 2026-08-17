@@ -167,6 +167,24 @@ Zoom is re-applied after a full page reload or top-level navigation (WebKitGTK r
 | `allowed_domains` | list | `[]` | Domains that stay in the app (others open in browser) |
 | `open_external_links` | bool | `true` | Open blocked external navigations in the system browser. Set to `false` for apps that auto-navigate to cross-domain URLs you don't want landing in your browser. |
 | `url_schemes` | list | `[]` | URL schemes to register as handler for (e.g., `tel`, `mailto`). Adds `MimeType=x-scheme-handler/...` to the `.desktop` file. |
+| `debug.webkit_channels` | string | | Enable WebKit debug channels (sets `WEBKIT_DEBUG`), e.g. `Network=debug,Media=debug`. Logs go to WebKit's logging sink (often systemd-journald). |
+| `debug.gst_channels` | string | | Enable GStreamer debug channels (sets `GST_DEBUG`), e.g. `3,webkit*:6`. |
+| `debug.gst_log_file` | path | | Write GStreamer debug logs to this file (sets `GST_DEBUG_FILE`). |
+| `debug.gst_no_color` | bool | `false` | Disable color codes in GStreamer logs (sets `GST_DEBUG_NO_COLOR`). |
+
+### Tip: debugging knobs
+
+Set the `debug.*` fields to enable WebKit/GStreamer logging without wrapper scripts. They are applied to the process environment before the webview starts, so WebKit's child processes inherit them. Useful for diagnosing media issues (e.g. silent voice notes, failed requests):
+
+```yaml
+debug:
+  webkit_channels: "Network=debug,Media=debug"
+  gst_channels: "3,webkit*:6"
+  gst_log_file: "/tmp/pmma-gst.log"
+  gst_no_color: true
+```
+
+These knobs set WebKit/GStreamer env vars and are ignored in browser backend mode.
 
 ### Tip: user agent and navigator spoofing
 

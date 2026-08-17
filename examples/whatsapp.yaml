@@ -19,3 +19,11 @@ allowed_domains:
   - whatsapp.com
   - whatsapp.net
   - wa.me
+
+# Optional: enable WebKit/GStreamer logging to debug media/network issues.
+# Applied before the webview starts (ignored in browser backend mode).
+# debug:
+#   webkit_channels: "Network=debug,Media=debug"
+#   gst_channels: "3,webkit*:6"
+#   gst_log_file: "/tmp/pmma-gst.log"
+#   gst_no_color: true

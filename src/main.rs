@@ -303,6 +303,13 @@ fn main() -> Result<()> {
 
             let config_dir = config.parent().unwrap_or_else(|| Path::new("."));
             if app_config.backend.is_browser() {
+                if app_config.debug.is_active() {
+                    eprintln!(
+                        "warning: debug knobs are ignored with backend '{}' \
+                         (they set WebKit/GStreamer env vars, which don't apply to a browser)",
+                        app_config.backend.display_name()
+                    );
+                }
                 browser::warn_ignored_options(&app_config);
                 if debug {
                     match browser::find_binary(&app_config.backend) {
@@ -337,6 +344,21 @@ fn main() -> Result<()> {
                     if app_config.inject.js.is_some() || app_config.inject.js_file.is_some() {
                         eprintln!("[debug] inject: JS active");
                     }
+                    if app_config.debug.is_active() {
+                        eprintln!("[debug] debug knobs active");
+                        if let Some(ch) = &app_config.debug.webkit_channels {
+                            eprintln!("[debug]   webkit_channels: {ch}");
+                        }
+                        if let Some(ch) = &app_config.debug.gst_channels {
+                            eprintln!("[debug]   gst_channels: {ch}");
+                        }
+                        if let Some(p) = &app_config.debug.gst_log_file {
+                            eprintln!("[debug]   gst_log_file: {}", p.display());
+                        }
+                        if app_config.debug.gst_no_color {
+                            eprintln!("[debug]   gst_no_color: true");
+                        }
+                    }
                 }
                 let _lock = match profile::acquire_lock(
                     &data_dir,
@@ -360,6 +382,7 @@ fn main() -> Result<()> {
                     }
                     Err(e) => return Err(e),
                 };
+                app_config.debug.apply_to_env();
                 app::run(&app_config, &profile_name, &data_dir, config_dir, debug, &effective_url)?;
             }
         }
@@ -384,9 +407,17 @@ fn main() -> Result<()> {
             let config_dir = Path::new(".");
             let effective_url = app_config.url.clone();
             if app_config.backend.is_browser() {
+                if app_config.debug.is_active() {
+                    eprintln!(
+                        "warning: debug knobs are ignored with backend '{}' \
+                         (they set WebKit/GStreamer env vars, which don't apply to a browser)",
+                        app_config.backend.display_name()
+                    );
+                }
                 browser::warn_ignored_options(&app_config);
                 browser::run(&app_config, &data_dir, &effective_url, config_dir)?;
             } else {
+                app_config.debug.apply_to_env();
                 app::run(
                     &app_config,
                     &profile_name,

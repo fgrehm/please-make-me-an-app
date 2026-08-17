@@ -86,6 +86,63 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub url_schemes: Vec<String>,
+
+    #[serde(default)]
+    pub debug: DebugConfig,
+}
+
+/// Debugging knobs that map to WebKit/GStreamer environment variables.
+///
+/// These are applied to the process environment *before* the webview starts, so
+/// WebKit's child processes (network process, web process) inherit them. They
+/// are useful for diagnosing issues like the WebAudio silence seen with
+/// WhatsApp voice notes.
+#[derive(Debug, Default, Deserialize)]
+pub struct DebugConfig {
+    /// WebKit debug channels (sets WEBKIT_DEBUG), e.g. "Network=debug,Media=debug".
+    #[serde(default)]
+    pub webkit_channels: Option<String>,
+
+    /// GStreamer debug channels (sets GST_DEBUG), e.g. "3,webkit*:6".
+    #[serde(default)]
+    pub gst_channels: Option<String>,
+
+    /// Write GStreamer logs to this file (sets GST_DEBUG_FILE).
+    #[serde(default)]
+    pub gst_log_file: Option<std::path::PathBuf>,
+
+    /// Disable color codes in GStreamer logs (sets GST_DEBUG_NO_COLOR).
+    #[serde(default)]
+    pub gst_no_color: bool,
+}
+
+impl DebugConfig {
+    /// Returns true if any debug knob is set.
+    pub fn is_active(&self) -> bool {
+        self.webkit_channels.is_some()
+            || self.gst_channels.is_some()
+            || self.gst_log_file.is_some()
+            || self.gst_no_color
+    }
+
+    /// Apply the knobs to the process environment. Called before the webview and
+    /// its WebKit subprocesses are spawned so they inherit the variables.
+    pub fn apply_to_env(&self) {
+        // SAFETY: called at startup on the main thread before any other threads
+        // are spawned, matching how GTK_USE_PORTAL is set in main().
+        if let Some(ch) = &self.webkit_channels {
+            unsafe { std::env::set_var("WEBKIT_DEBUG", ch) };
+        }
+        if let Some(ch) = &self.gst_channels {
+            unsafe { std::env::set_var("GST_DEBUG", ch) };
+        }
+        if let Some(path) = &self.gst_log_file {
+            unsafe { std::env::set_var("GST_DEBUG_FILE", path) };
+        }
+        if self.gst_no_color {
+            unsafe { std::env::set_var("GST_DEBUG_NO_COLOR", "1") };
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -448,6 +505,7 @@ pub fn test_config() -> AppConfig {
         notifications: true,
         tray: TrayConfig::default(),
         url_schemes: vec![],
+        debug: DebugConfig::default(),
     }
 }
 
@@ -704,5 +762,59 @@ mod tests {
         assert_eq!(Backend::Brave.display_name(), "brave");
         assert_eq!(Backend::Chrome.display_name(), "chrome");
         assert_eq!(Backend::Chromium.display_name(), "chromium");
+    }
+
+    #[test]
+    fn debug_config_default_inactive() {
+        assert!(!DebugConfig::default().is_active());
+    }
+
+    #[test]
+    fn debug_config_active_when_any_knob_set() {
+        assert!(DebugConfig {
+            webkit_channels: Some("Network=debug".into()),
+            ..Default::default()
+        }
+        .is_active());
+        assert!(DebugConfig {
+            gst_channels: Some("3".into()),
+            ..Default::default()
+        }
+        .is_active());
+        assert!(DebugConfig {
+            gst_no_color: true,
+            ..Default::default()
+        }
+        .is_active());
+        assert!(DebugConfig {
+            gst_log_file: Some("/tmp/x.log".into()),
+            ..Default::default()
+        }
+        .is_active());
+    }
+
+    #[test]
+    fn debug_config_apply_sets_env_vars() {
+        let cfg = DebugConfig {
+            webkit_channels: Some("Network=debug".into()),
+            gst_channels: Some("3".into()),
+            gst_log_file: Some("/tmp/pmma-test.log".into()),
+            gst_no_color: true,
+        };
+        cfg.apply_to_env();
+        assert_eq!(std::env::var("WEBKIT_DEBUG").unwrap(), "Network=debug");
+        assert_eq!(std::env::var("GST_DEBUG").unwrap(), "3");
+        assert_eq!(
+            std::env::var("GST_DEBUG_FILE").unwrap(),
+            "/tmp/pmma-test.log"
+        );
+        assert_eq!(std::env::var("GST_DEBUG_NO_COLOR").unwrap(), "1");
+        // clean up so the env doesn't leak into other tests
+        unsafe {
+            std::env::remove_var("WEBKIT_DEBUG");
+            std::env::remove_var("GST_DEBUG");
+            std::env::remove_var("GST_DEBUG_FILE");
+            std::env::remove_var("GST_DEBUG_NO_COLOR");
+        }
     }
 }
